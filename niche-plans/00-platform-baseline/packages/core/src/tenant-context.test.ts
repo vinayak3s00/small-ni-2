@@ -44,6 +44,8 @@ describe('withTenantScope (RLS)', () => {
     expect(calls[0]).toBe('BEGIN');
     expect(calls[1]).toContain('set_config');
     expect(calls[1]).toContain('tenant-abc');
+    // RLS must be enforced by dropping to the non-superuser role.
+    expect(calls.some((c) => c.includes('SET LOCAL ROLE'))).toBe(true);
     expect(calls).toContain('COMMIT');
   });
 

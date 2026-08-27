@@ -16,6 +16,24 @@ export function createPool(url = process.env.DATABASE_URL): Pool {
 
 const MIGRATIONS_DIR = join(__dirname, '..', 'migrations');
 
+/**
+ * Ensure the non-superuser RLS role exists and can use the schema. RLS is only
+ * enforced against non-superuser, non-owner roles, so withTenantScope() runs
+ * every tenant transaction as this role. Idempotent + safe to call each boot.
+ */
+export async function ensureRlsRole(pool: Pool, role = process.env.APP_RLS_ROLE ?? 'app_rls'): Promise<void> {
+  await pool.query(`DO $ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '${role}') THEN
+      CREATE ROLE "${role}" NOLOGIN;
+    END IF;
+  END $;`);
+  await pool.query(`GRANT USAGE ON SCHEMA public TO "${role}"`);
+  await pool.query(`GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO "${role}"`);
+  await pool.query(`GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO "${role}"`);
+  await pool.query(`ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO "${role}"`);
+  await pool.query(`ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO "${role}"`);
+}
+
 export async function migrate(pool: Pool, dir = MIGRATIONS_DIR): Promise<string[]> {
   await pool.query(
     `CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -43,6 +61,8 @@ export async function migrate(pool: Pool, dir = MIGRATIONS_DIR): Promise<string[
       client.release();
     }
   }
+  // Grant the RLS role after tables exist so it can read/write them.
+  await ensureRlsRole(pool);
   return applied;
 }
 
