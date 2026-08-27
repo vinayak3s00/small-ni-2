@@ -62,3 +62,45 @@ NN-<product>/
 4. **AbetConcierge** (top-of-funnel land-and-expand).
 5. **AbetMigrate** (removes the switching objection for all of the above).
 6. **AbetPartner**, then **AbetRetain** / **AbetField** as demand warrants.
+
+
+---
+
+## Runnable reference implementation
+
+Beyond the design docs, each product ships **runnable, tested service code** under its `scaffolding/services/` folder, all built on the shared `@abetworks/core` library (`00-platform-baseline/packages/core`).
+
+| Product | Service | Stack | What it demonstrates | Tests |
+|---------|---------|-------|----------------------|-------|
+| baseline | `@abetworks/core` | TS lib | tenant context (AsyncLocalStorage), RLS scope helper, JWT auth, append-only audit | 5 |
+| AbetVerticals | `core-crm` | TS/Fastify | auth + tenant isolation + no-double-book optimistic lock | 3 |
+| AbetVerticals | `scoring-svc` | Py/FastAPI | explainable scoring with ordered reason codes, per-vertical packs | 5 |
+| AbetTrust | `policy-engine` | Py/FastAPI | PDP: export role checks, field masking, citation-grounding gate | 7 |
+| AbetTrust | `audit-evidence-svc` | TS/Fastify | tamper-evident hash-chained audit + evidence packs | 4 |
+| AbetConcierge | `quoting-svc` | TS/Fastify | GST-aware multi-currency quotes (minor units) + WhatsApp opt-in guard | 8 |
+| AbetVoice | `telephony-svc` | TS/Fastify | DND gate, ungrounded-call escalation, PII-redacted transcripts | 5 |
+| AbetMigrate | `mapping-engine` | Py/FastAPI | field mapping, idempotent cutover, reversible rollback journal | 6 |
+| AbetPartner | `partner-admin-svc` | TS/Fastify | hierarchical tenancy, scoped grants, billing rollup + margin | 5 |
+| AbetRetain | `retention-svc` | Py/FastAPI | idempotent order ingest, explainable LTV/churn, frequency caps | 6 |
+| AbetField | `sync-gateway` | TS/Fastify | offline idempotent replay + per-entity conflict resolution | 4 |
+
+**Total: 11 services, 58 tests, all green.**
+
+### Running a service locally
+
+TypeScript service (Node 22 via nvm):
+```bash
+# build the shared lib once
+cd niche-plans/00-platform-baseline/packages/core && npm install && npm run build
+# then any TS service
+cd ../../../../01-vertical-ai-agent-blueprints/scaffolding/services/core-crm
+npm install && npm run build && npm test && npm start
+```
+
+Python service (uv):
+```bash
+cd niche-plans/01-vertical-ai-agent-blueprints/scaffolding/services/scoring-svc
+uv venv && uv pip install -e ".[dev]"
+uv run pytest -q
+uv run uvicorn app:app --app-dir src --reload
+```
