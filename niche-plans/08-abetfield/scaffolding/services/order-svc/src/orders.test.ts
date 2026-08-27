@@ -7,55 +7,56 @@
 
 import { describe, it, expect } from 'vitest';
 import { runWithPrincipal } from '@abetworks/core';
-import { OrderService, InsufficientStockError, UnknownSkuError } from './orders';
+import { InMemoryOrderStore, InsufficientStockError, UnknownSkuError } from './orders';
 
 const principal = { sub: 'rep-1', tenantId: 't1', roles: ['field_rep'] };
-const ctx = <T>(fn: () => T) => runWithPrincipal(principal, fn);
+const ctx = <T>(fn: () => Promise<T>) => runWithPrincipal(principal, fn);
 
-function svcWithStock() {
-  const svc = new OrderService();
-  ctx(() => {
-    svc.setItem({ sku: 'A', name: 'Item A', priceMinor: 10000, gstRate: 0.18 }, 10);
-    svc.setItem({ sku: 'B', name: 'Item B', priceMinor: 25000, gstRate: 0.05 }, 3);
+async function storeWithStock() {
+  const store = new InMemoryOrderStore();
+  await ctx(async () => {
+    await store.setItem({ sku: 'A', name: 'Item A', priceMinor: 10000, gstRate: 0.18 }, 10);
+    await store.setItem({ sku: 'B', name: 'Item B', priceMinor: 25000, gstRate: 0.05 }, 3);
   });
-  return svc;
+  return store;
 }
 
-describe('OrderService', () => {
-  it('places a GST-aware order and allocates stock', () => {
-    const svc = svcWithStock();
-    const order = ctx(() => svc.place('c1', 'outlet-1', 'INR', [{ sku: 'A', qty: 2 }]));
+describe('InMemoryOrderStore', () => {
+  it('places a GST-aware order and allocates stock', async () => {
+    const store = await storeWithStock();
+    const order = await ctx(() => store.place('c1', 'outlet-1', 'INR', [{ sku: 'A', qty: 2 }]));
     expect(order.subtotalMinor).toBe(20000);
     expect(order.gstMinor).toBe(3600);
     expect(order.totalMinor).toBe(23600);
-    expect(ctx(() => svc.stockOf('A'))).toBe(8); // 10 - 2
+    expect(await ctx(() => store.stockOf('A'))).toBe(8);
   });
 
-  it('rejects the whole order when any line exceeds stock (all-or-nothing)', () => {
-    const svc = svcWithStock();
-    expect(() =>
-      ctx(() => svc.place('c1', 'outlet-1', 'INR', [{ sku: 'A', qty: 1 }, { sku: 'B', qty: 5 }])),
-    ).toThrow(InsufficientStockError);
-    // No stock should have been deducted from A since the order failed.
-    expect(ctx(() => svc.stockOf('A'))).toBe(10);
+  it('rejects the whole order when any line exceeds stock (all-or-nothing)', async () => {
+    const store = await storeWithStock();
+    await expect(
+      ctx(() => store.place('c1', 'outlet-1', 'INR', [{ sku: 'A', qty: 1 }, { sku: 'B', qty: 5 }])),
+    ).rejects.toBeInstanceOf(InsufficientStockError);
+    expect(await ctx(() => store.stockOf('A'))).toBe(10); // nothing deducted
   });
 
-  it('is idempotent on clientOrderId', () => {
-    const svc = svcWithStock();
-    const first = ctx(() => svc.place('c1', 'outlet-1', 'INR', [{ sku: 'A', qty: 2 }]));
-    const replay = ctx(() => svc.place('c1', 'outlet-1', 'INR', [{ sku: 'A', qty: 2 }]));
+  it('is idempotent on clientOrderId', async () => {
+    const store = await storeWithStock();
+    const first = await ctx(() => store.place('c1', 'outlet-1', 'INR', [{ sku: 'A', qty: 2 }]));
+    const replay = await ctx(() => store.place('c1', 'outlet-1', 'INR', [{ sku: 'A', qty: 2 }]));
     expect(replay.id).toBe(first.id);
-    expect(ctx(() => svc.stockOf('A'))).toBe(8); // only deducted once
+    expect(await ctx(() => store.stockOf('A'))).toBe(8); // deducted once
   });
 
-  it('rejects unknown sku', () => {
-    const svc = svcWithStock();
-    expect(() => ctx(() => svc.place('c1', 'o1', 'INR', [{ sku: 'Z', qty: 1 }]))).toThrow(UnknownSkuError);
+  it('rejects unknown sku', async () => {
+    const store = await storeWithStock();
+    await expect(
+      ctx(() => store.place('c1', 'o1', 'INR', [{ sku: 'Z', qty: 1 }])),
+    ).rejects.toBeInstanceOf(UnknownSkuError);
   });
 
-  it('is tenant-scoped for stock', () => {
-    const svc = svcWithStock();
+  it('is tenant-scoped for stock', async () => {
+    const store = await storeWithStock();
     const other = { sub: 'x', tenantId: 't2', roles: [] };
-    expect(runWithPrincipal(other, () => svc.stockOf('A'))).toBe(0);
+    expect(await runWithPrincipal(other, () => store.stockOf('A'))).toBe(0);
   });
 });

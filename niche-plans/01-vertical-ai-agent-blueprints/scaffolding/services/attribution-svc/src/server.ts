@@ -7,11 +7,15 @@
 
 import Fastify, { FastifyInstance } from 'fastify';
 import { parseBearer, verifyToken, runWithPrincipal } from '@abetworks/core';
-import { AttributionLedger, type AttributionModel } from './attribution';
+import {
+  InMemoryAttributionStore,
+  type AttributionModel,
+  type AttributionStore,
+} from './attribution';
 
 const JWT_SECRET = process.env.JWT_SECRET ?? 'dev-secret-change-me';
 
-export function buildServer(ledger = new AttributionLedger()): FastifyInstance {
+export function buildServer(store: AttributionStore = new InMemoryAttributionStore()): FastifyInstance {
   const app = Fastify({ logger: false });
 
   app.addHook('onRequest', async (req: any, reply) => {
@@ -23,26 +27,28 @@ export function buildServer(ledger = new AttributionLedger()): FastifyInstance {
     }
   });
 
+  const withCtx = <T>(req: any, fn: () => Promise<T>): Promise<T> =>
+    runWithPrincipal(req.principal, fn);
+
   app.get('/healthz', async () => ({ status: 'ok' }));
 
-  app.post('/v1/attribution/events', async (req: any, reply) =>
-    runWithPrincipal(req.principal, () => {
-      const { recordId, source, campaign, partnerCode, occurredAt } = req.body ?? {};
-      if (!recordId || !source) {
-        return reply.code(400).send({ error: 'recordId and source are required' });
-      }
-      return reply
-        .code(201)
-        .send(ledger.record({ recordId, source, campaign, partnerCode, occurredAt }));
-    }),
-  );
+  app.post('/v1/attribution/events', async (req: any, reply) => {
+    const { recordId, source, campaign, partnerCode, occurredAt } = req.body ?? {};
+    if (!recordId || !source) {
+      return reply.code(400).send({ error: 'recordId and source are required' });
+    }
+    const event = await withCtx(req, () =>
+      store.record({ recordId, source, campaign, partnerCode, occurredAt }),
+    );
+    return reply.code(201).send(event);
+  });
 
   app.get('/v1/attribution/:recordId', async (req: any) =>
-    runWithPrincipal(req.principal, () => {
+    withCtx(req, async () => {
       const model = (req.query?.model as AttributionModel) ?? 'last_touch';
       return {
-        touches: ledger.touches(req.params.recordId),
-        shares: ledger.attribute(req.params.recordId, model),
+        touches: await store.touches(req.params.recordId),
+        shares: await store.attribute(req.params.recordId, model),
       };
     }),
   );
@@ -50,11 +56,29 @@ export function buildServer(ledger = new AttributionLedger()): FastifyInstance {
   return app;
 }
 
+/** Postgres when DATABASE_URL is set (migrates on boot); in-memory otherwise. */
+export async function resolveStore(): Promise<AttributionStore> {
+  if (!process.env.DATABASE_URL) return new InMemoryAttributionStore();
+  const { createPool, migrate } = await import('./db');
+  const { PgAttributionStore } = await import('./pg-attribution');
+  const pool = createPool();
+  await migrate(pool);
+  return new PgAttributionStore(pool);
+}
+
 if (require.main === module) {
-  const app = buildServer();
-  const port = Number(process.env.PORT ?? 3011);
-  app.listen({ port, host: '0.0.0.0' }).then(() => {
-    // eslint-disable-next-line no-console
-    console.log(`attribution-svc listening on :${port}`);
-  });
+  resolveStore()
+    .then((store) => {
+      const app = buildServer(store);
+      const port = Number(process.env.PORT ?? 3011);
+      return app.listen({ port, host: '0.0.0.0' }).then(() => {
+        // eslint-disable-next-line no-console
+        console.log(`attribution-svc listening on :${port} (${process.env.DATABASE_URL ? 'postgres' : 'in-memory'})`);
+      });
+    })
+    .catch((err) => {
+      // eslint-disable-next-line no-console
+      console.error('failed to start:', err.message);
+      process.exit(1);
+    });
 }

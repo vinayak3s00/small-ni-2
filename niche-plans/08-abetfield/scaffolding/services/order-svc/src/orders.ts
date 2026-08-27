@@ -12,10 +12,14 @@ import { getTenantId } from '@abetworks/core';
  * GST-aware field-order capture with stock allocation for AbetField.
  *
  *  * Money is handled in integer minor units (paise) to avoid float error.
- *  * Each SKU has a stock position; placing an order allocates stock atomically
- *    and REJECTS the whole order if any line exceeds available quantity, so a
- *    rep can never sell stock that isn't there.
+ *  * Placing an order allocates stock atomically and REJECTS the whole order
+ *    if any line exceeds available quantity, so a rep can never sell stock that
+ *    isn't there. The Postgres store enforces this at the database level so
+ *    concurrent reps cannot oversell.
  *  * Idempotent by clientOrderId (offline captures may replay on sync).
+ *
+ * Two implementations satisfy OrderStore: InMemoryOrderStore (unit tests/dev)
+ * and PgOrderStore (see pg-orders.ts).
  */
 
 export interface CatalogItem {
@@ -64,75 +68,105 @@ export class UnknownSkuError extends Error {
   }
 }
 
-export class OrderService {
-  private catalog = new Map<string, CatalogItem>();
-  private stock = new Map<string, number>(); // sku -> qty available (per tenant demo: single tenant scope in map key)
-  private orders = new Map<string, FieldOrder>(); // clientOrderId -> order (idempotency)
+/** Compute priced lines from inputs + catalog. Pure; shared by both stores. */
+export function priceLines(
+  catalog: Map<string, CatalogItem>,
+  inputs: OrderLineInput[],
+): OrderLine[] {
+  return inputs.map((inp) => {
+    const item = catalog.get(inp.sku);
+    if (!item) throw new UnknownSkuError(inp.sku);
+    const lineSubtotalMinor = item.priceMinor * inp.qty;
+    const lineGstMinor = Math.round(lineSubtotalMinor * item.gstRate);
+    return {
+      sku: item.sku,
+      name: item.name,
+      qty: inp.qty,
+      unitPriceMinor: item.priceMinor,
+      lineSubtotalMinor,
+      gstRate: item.gstRate,
+      lineGstMinor,
+      lineTotalMinor: lineSubtotalMinor + lineGstMinor,
+    };
+  });
+}
 
-  setItem(item: CatalogItem, stock: number): void {
-    this.catalog.set(item.sku, item);
-    this.stock.set(this.key(item.sku), stock);
-  }
+export function totals(lines: OrderLine[]): { subtotalMinor: number; gstMinor: number; totalMinor: number } {
+  const subtotalMinor = lines.reduce((s, l) => s + l.lineSubtotalMinor, 0);
+  const gstMinor = lines.reduce((s, l) => s + l.lineGstMinor, 0);
+  return { subtotalMinor, gstMinor, totalMinor: subtotalMinor + gstMinor };
+}
+
+export interface OrderStore {
+  setItem(item: CatalogItem, stock: number): Promise<void>;
+  stockOf(sku: string): Promise<number>;
+  place(
+    clientOrderId: string,
+    outletId: string,
+    currency: string,
+    inputs: OrderLineInput[],
+  ): Promise<FieldOrder>;
+}
+
+/** In-memory order store (unit tests / dev). */
+export class InMemoryOrderStore implements OrderStore {
+  private catalog = new Map<string, CatalogItem>();
+  private stock = new Map<string, number>();
+  private orders = new Map<string, FieldOrder>();
 
   private key(sku: string): string {
     return `${getTenantId()}:${sku}`;
   }
 
-  stockOf(sku: string): number {
+  async setItem(item: CatalogItem, stock: number): Promise<void> {
+    this.catalog.set(this.key(item.sku), item);
+    this.stock.set(this.key(item.sku), stock);
+  }
+
+  async stockOf(sku: string): Promise<number> {
     return this.stock.get(this.key(sku)) ?? 0;
   }
 
-  place(clientOrderId: string, outletId: string, currency: string, inputs: OrderLineInput[]): FieldOrder {
-    // Idempotent replay: same clientOrderId returns the original order.
-    const existing = this.orders.get(clientOrderId);
-    if (existing && existing.tenantId === getTenantId()) return existing;
+  async place(
+    clientOrderId: string,
+    outletId: string,
+    currency: string,
+    inputs: OrderLineInput[],
+  ): Promise<FieldOrder> {
+    const tenantId = getTenantId();
+    const existing = this.orders.get(`${tenantId}:${clientOrderId}`);
+    if (existing) return existing;
 
     if (!inputs.length) throw new Error('order requires at least one line');
 
-    // Validate + pre-check stock before allocating anything (all-or-nothing).
+    // All-or-nothing validation before allocating anything.
     for (const inp of inputs) {
       if (inp.qty <= 0) throw new Error(`qty must be positive for ${inp.sku}`);
-      if (!this.catalog.has(inp.sku)) throw new UnknownSkuError(inp.sku);
-      const available = this.stockOf(inp.sku);
+      const item = this.catalog.get(this.key(inp.sku));
+      if (!item) throw new UnknownSkuError(inp.sku);
+      const available = this.stock.get(this.key(inp.sku)) ?? 0;
       if (inp.qty > available) throw new InsufficientStockError(inp.sku, inp.qty, available);
     }
 
-    const lines: OrderLine[] = inputs.map((inp) => {
-      const item = this.catalog.get(inp.sku)!;
-      const lineSubtotalMinor = item.priceMinor * inp.qty;
-      const lineGstMinor = Math.round(lineSubtotalMinor * item.gstRate);
-      return {
-        sku: item.sku,
-        name: item.name,
-        qty: inp.qty,
-        unitPriceMinor: item.priceMinor,
-        lineSubtotalMinor,
-        gstRate: item.gstRate,
-        lineGstMinor,
-        lineTotalMinor: lineSubtotalMinor + lineGstMinor,
-      };
-    });
+    const catalogForTenant = new Map<string, CatalogItem>();
+    for (const inp of inputs) catalogForTenant.set(inp.sku, this.catalog.get(this.key(inp.sku))!);
+    const lines = priceLines(catalogForTenant, inputs);
 
-    // Commit: allocate stock now that all lines are valid.
     for (const inp of inputs) {
-      this.stock.set(this.key(inp.sku), this.stockOf(inp.sku) - inp.qty);
+      this.stock.set(this.key(inp.sku), (this.stock.get(this.key(inp.sku)) ?? 0) - inp.qty);
     }
 
-    const subtotalMinor = lines.reduce((s, l) => s + l.lineSubtotalMinor, 0);
-    const gstMinor = lines.reduce((s, l) => s + l.lineGstMinor, 0);
-
+    const t = totals(lines);
     const order: FieldOrder = {
       id: randomUUID(),
-      tenantId: getTenantId(),
+      tenantId,
       clientOrderId,
       outletId,
       currency,
       lines,
-      subtotalMinor,
-      gstMinor,
-      totalMinor: subtotalMinor + gstMinor,
+      ...t,
     };
-    this.orders.set(clientOrderId, order);
+    this.orders.set(`${tenantId}:${clientOrderId}`, order);
     return order;
   }
 }

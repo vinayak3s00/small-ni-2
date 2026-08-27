@@ -1,0 +1,66 @@
+# Copyright (c) 2026 Abetworks (abetworks.in). All rights reserved.
+# Abetworks Proprietary and Confidential.
+#
+# Sales demo: one Postgres + all four production-grade services, each with its
+# own database and RLS isolation. Run from the REPO ROOT:
+#   docker compose -f demo/docker-compose.yaml up --build
+# Then run the smoke test:
+#   bash demo/smoke.sh
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_PASSWORD: dev
+      POSTGRES_HOST_AUTH_METHOD: trust
+    ports: ["5432:5432"]
+    volumes:
+      - ./init-databases.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  core-crm:
+    build:
+      context: ..
+      dockerfile: niche-plans/01-vertical-ai-agent-blueprints/scaffolding/services/core-crm/Dockerfile
+    environment:
+      DATABASE_URL: postgres://postgres:dev@postgres:5432/abetverticals
+      JWT_SECRET: demo-secret
+      PORT: "3001"
+    ports: ["3001:3001"]
+    depends_on: { postgres: { condition: service_healthy } }
+
+  attribution-svc:
+    build:
+      context: ..
+      dockerfile: niche-plans/01-vertical-ai-agent-blueprints/scaffolding/services/attribution-svc/Dockerfile
+    environment:
+      DATABASE_URL: postgres://postgres:dev@postgres:5432/abetverticals
+      JWT_SECRET: demo-secret
+      PORT: "3011"
+    ports: ["3011:3011"]
+    depends_on: { postgres: { condition: service_healthy } }
+
+  kyc-svc:
+    build:
+      context: ..
+      dockerfile: niche-plans/02-abettrust/scaffolding/services/kyc-svc/Dockerfile
+    environment:
+      DATABASE_URL: postgres://postgres:dev@postgres:5432/abettrust
+      JWT_SECRET: demo-secret
+      PORT: "3007"
+    ports: ["3007:3007"]
+    depends_on: { postgres: { condition: service_healthy } }
+
+  order-svc:
+    build:
+      context: ..
+      dockerfile: niche-plans/08-abetfield/scaffolding/services/order-svc/Dockerfile
+    environment:
+      DATABASE_URL: postgres://postgres:dev@postgres:5432/abetfield
+      JWT_SECRET: demo-secret
+      PORT: "3013"
+    ports: ["3013:3013"]
+    depends_on: { postgres: { condition: service_healthy } }

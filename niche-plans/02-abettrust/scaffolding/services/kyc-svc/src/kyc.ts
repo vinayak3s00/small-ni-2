@@ -20,11 +20,15 @@ import { getTenantId, getPrincipal } from '@abetworks/core';
  * satisfying AbetTrust's audit-grade communication requirement. Disclosures
  * (e.g. product risk statements) must be recorded before a suitability record
  * can be marked complete.
+ *
+ * Two implementations satisfy the KycStore contract: an in-memory store for
+ * unit tests/dev, and a PostgreSQL-backed store (see pg-kyc.ts) with RLS
+ * isolation and a database-enforced append-only trail.
  */
 
 export type KycStatus = 'pending' | 'submitted' | 'verified' | 'rejected' | 'expired';
 
-const TRANSITIONS: Record<KycStatus, KycStatus[]> = {
+export const TRANSITIONS: Record<KycStatus, KycStatus[]> = {
   pending: ['submitted'],
   submitted: ['verified', 'rejected'],
   verified: ['expired'],
@@ -56,20 +60,36 @@ export class InvalidKycTransition extends Error {
   }
 }
 
-export class KycService {
+export class KycNotFound extends Error {
+  constructor(id: string) {
+    super(`kyc record not found for tenant: ${id}`);
+    this.name = 'KycNotFound';
+  }
+}
+
+/** Store contract shared by the in-memory and Postgres implementations. */
+export interface KycStore {
+  create(partyId: string, documents?: string[]): Promise<KycRecord>;
+  transition(id: string, to: KycStatus): Promise<KycRecord>;
+  addDisclosure(id: string, disclosure: string): Promise<KycRecord>;
+  isSuitabilityComplete(id: string): Promise<boolean>;
+  get(id: string): Promise<KycRecord | undefined>;
+}
+
+/** In-memory KYC store (unit tests / local dev). */
+export class InMemoryKycStore implements KycStore {
   private records = new Map<string, KycRecord>();
 
   private scoped(id: string): KycRecord | undefined {
     const rec = this.records.get(id);
-    if (rec && rec.tenantId === getTenantId()) return rec;
-    return undefined;
+    return rec && rec.tenantId === getTenantId() ? rec : undefined;
   }
 
   private appendTrail(rec: KycRecord, kind: TrailEntry['kind'], detail: string): void {
     rec.trail.push({ at: new Date().toISOString(), actor: getPrincipal().sub, kind, detail });
   }
 
-  create(partyId: string, documents: string[] = []): KycRecord {
+  async create(partyId: string, documents: string[] = []): Promise<KycRecord> {
     const rec: KycRecord = {
       id: randomUUID(),
       tenantId: getTenantId(),
@@ -84,9 +104,9 @@ export class KycService {
     return rec;
   }
 
-  transition(id: string, to: KycStatus): KycRecord {
+  async transition(id: string, to: KycStatus): Promise<KycRecord> {
     const rec = this.scoped(id);
-    if (!rec) throw new Error('kyc record not found for tenant');
+    if (!rec) throw new KycNotFound(id);
     if (!TRANSITIONS[rec.status].includes(to)) {
       throw new InvalidKycTransition(rec.status, to);
     }
@@ -96,23 +116,20 @@ export class KycService {
     return rec;
   }
 
-  /** Record a disclosure (append-only). Required before suitability is complete. */
-  addDisclosure(id: string, disclosure: string): KycRecord {
+  async addDisclosure(id: string, disclosure: string): Promise<KycRecord> {
     const rec = this.scoped(id);
-    if (!rec) throw new Error('kyc record not found for tenant');
+    if (!rec) throw new KycNotFound(id);
     rec.disclosures.push(disclosure);
     this.appendTrail(rec, 'disclosure', disclosure);
     return rec;
   }
 
-  /** Suitability is only complete when KYC is verified AND disclosures exist. */
-  isSuitabilityComplete(id: string): boolean {
+  async isSuitabilityComplete(id: string): Promise<boolean> {
     const rec = this.scoped(id);
-    if (!rec) return false;
-    return rec.status === 'verified' && rec.disclosures.length > 0;
+    return !!rec && rec.status === 'verified' && rec.disclosures.length > 0;
   }
 
-  get(id: string): KycRecord | undefined {
+  async get(id: string): Promise<KycRecord | undefined> {
     return this.scoped(id);
   }
 }

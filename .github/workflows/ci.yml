@@ -35,15 +35,27 @@ jobs:
       - name: Run all service test suites
         run: bash scripts/run_all_tests.sh
 
-  core-crm-integration:
-    name: core-crm Postgres integration
+  db-integration:
+    name: Postgres integration (${{ matrix.name }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: core-crm
+            dir: niche-plans/01-vertical-ai-agent-blueprints/scaffolding/services/core-crm
+          - name: attribution-svc
+            dir: niche-plans/01-vertical-ai-agent-blueprints/scaffolding/services/attribution-svc
+          - name: kyc-svc
+            dir: niche-plans/02-abettrust/scaffolding/services/kyc-svc
+          - name: order-svc
+            dir: niche-plans/08-abetfield/scaffolding/services/order-svc
     services:
       postgres:
         image: postgres:16-alpine
         env:
           POSTGRES_PASSWORD: dev
-          POSTGRES_DB: abetverticals
+          POSTGRES_DB: appdb
           POSTGRES_HOST_AUTH_METHOD: trust
         ports: ["5432:5432"]
         options: >-
@@ -59,8 +71,8 @@ jobs:
           node-version: "22"
       - name: Build shared core lib
         run: cd niche-plans/00-platform-baseline/packages/core && npm install && npm run build
-      - name: Run core-crm tests (incl. Postgres integration)
-        working-directory: niche-plans/01-vertical-ai-agent-blueprints/scaffolding/services/core-crm
+      - name: Run ${{ matrix.name }} tests (incl. Postgres integration)
+        working-directory: ${{ matrix.dir }}
         env:
-          DATABASE_URL: postgres://postgres:dev@localhost:5432/abetverticals
+          DATABASE_URL: postgres://postgres:dev@localhost:5432/appdb
         run: npm install && npm run build && npm test
