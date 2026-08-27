@@ -9,11 +9,13 @@ import { createHash } from 'node:crypto';
 import type { AuditEvent } from '@abetworks/core';
 
 /**
- * Append-only audit store with a tamper-evident hash chain. Each event's hash
- * incorporates the previous event's hash, so any modification or deletion of an
- * earlier event breaks verification. Production mirrors this to S3 Object Lock
- * (WORM); this store is the in-process authority for tests + local dev.
+ * Tamper-evident, append-only audit log. Each event's hash folds in the
+ * previous event's hash, so any modification or deletion of an earlier event
+ * breaks verification. Two implementations satisfy AuditStore: an in-memory
+ * chain (tests/dev) and a PostgreSQL WORM store (see pg-evidence.ts) where
+ * append-only is enforced by a database trigger and RLS isolates each tenant.
  */
+
 export interface ChainedEvent extends AuditEvent {
   seq: number;
   prevHash: string;
@@ -28,39 +30,76 @@ export interface EvidencePack {
   hash: string;
 }
 
-const GENESIS = '0'.repeat(64);
+export const GENESIS = '0'.repeat(64);
 
-function sha256(input: string): string {
+export function sha256(input: string): string {
   return createHash('sha256').update(input).digest('hex');
 }
 
-export class AuditChain {
+/**
+ * Canonical hash for a chain link. Kept pure and shared so the in-memory and
+ * Postgres stores produce identical hashes for identical inputs.
+ */
+export function linkHash(prevHash: string, event: AuditEvent, seq: number): string {
+  return sha256(prevHash + canonical(event) + seq);
+}
+
+/** Stable serialization of the audited fields (excludes chain metadata). */
+export function canonical(event: AuditEvent): string {
+  return JSON.stringify({
+    tenantId: event.tenantId,
+    actor: event.actor,
+    action: event.action,
+    entity: event.entity,
+    entityId: event.entityId,
+    fields: event.fields ?? null,
+    at: event.at,
+  });
+}
+
+export function merkleRoot(hashes: string[]): string {
+  return hashes.length ? sha256(hashes.join('')) : GENESIS;
+}
+
+export interface AuditQuery {
+  from?: string;
+  to?: string;
+  action?: string;
+}
+
+export interface AuditStore {
+  append(event: AuditEvent): Promise<ChainedEvent>;
+  verify(): Promise<boolean>;
+  query(filter?: AuditQuery): Promise<ChainedEvent[]>;
+  generatePack(period: string, from: string, to: string): Promise<EvidencePack>;
+}
+
+/** In-memory tamper-evident chain (unit tests / dev). */
+export class AuditChain implements AuditStore {
   private events: ChainedEvent[] = [];
 
-  append(event: AuditEvent): ChainedEvent {
+  async append(event: AuditEvent): Promise<ChainedEvent> {
     const seq = this.events.length;
     const prevHash = seq === 0 ? GENESIS : this.events[seq - 1].hash;
-    const hash = sha256(prevHash + JSON.stringify(event) + seq);
+    const hash = linkHash(prevHash, event, seq);
     const chained: ChainedEvent = { ...event, seq, prevHash, hash };
     this.events.push(chained);
     return chained;
   }
 
-  /** Verify the whole chain is intact (no insert/modify/delete). */
-  verify(): boolean {
+  async verify(): Promise<boolean> {
     let prev = GENESIS;
     for (let i = 0; i < this.events.length; i++) {
       const e = this.events[i];
       if (e.seq !== i || e.prevHash !== prev) return false;
       const { seq, prevHash, hash, ...raw } = e;
-      const expected = sha256(prevHash + JSON.stringify(raw) + seq);
-      if (expected !== hash) return false;
+      if (linkHash(prevHash, raw as AuditEvent, seq) !== hash) return false;
       prev = hash;
     }
     return true;
   }
 
-  query(filter: { from?: string; to?: string; action?: string } = {}): ChainedEvent[] {
+  async query(filter: AuditQuery = {}): Promise<ChainedEvent[]> {
     return this.events.filter((e) => {
       if (filter.action && e.action !== filter.action) return false;
       if (filter.from && e.at < filter.from) return false;
@@ -69,13 +108,11 @@ export class AuditChain {
     });
   }
 
-  /** Generate a hash-chained evidence pack (auditor export) for a period. */
-  generatePack(period: string, from: string, to: string): EvidencePack {
-    const events = this.query({ from, to });
-    const leaves = events.map((e) => e.hash);
-    const merkleRoot = leaves.length ? sha256(leaves.join('')) : GENESIS;
+  async generatePack(period: string, from: string, to: string): Promise<EvidencePack> {
+    const events = await this.query({ from, to });
+    const root = merkleRoot(events.map((e) => e.hash));
     const generatedAt = new Date().toISOString();
-    const hash = sha256(period + generatedAt + merkleRoot + events.length);
-    return { period, generatedAt, eventCount: events.length, merkleRoot, hash };
+    const hash = sha256(period + generatedAt + root + events.length);
+    return { period, generatedAt, eventCount: events.length, merkleRoot: root, hash };
   }
 }

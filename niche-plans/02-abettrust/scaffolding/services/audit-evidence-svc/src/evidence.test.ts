@@ -19,35 +19,44 @@ const ev = (id: string, action: AuditEvent['action'] = 'read'): AuditEvent => ({
 });
 
 describe('AuditChain', () => {
-  it('appends events with a valid hash chain', () => {
+  it('appends events with a valid hash chain', async () => {
     const chain = new AuditChain();
-    chain.append(ev('a'));
-    chain.append(ev('b', 'export'));
-    chain.append(ev('c', 'write'));
-    expect(chain.verify()).toBe(true);
+    await chain.append(ev('a'));
+    await chain.append(ev('b', 'export'));
+    await chain.append(ev('c', 'write'));
+    expect(await chain.verify()).toBe(true);
   });
 
-  it('detects tampering (deletion/modification breaks the chain)', () => {
+  it('links each event to the previous hash', async () => {
     const chain = new AuditChain();
-    chain.append(ev('a'));
-    chain.append(ev('b'));
+    const a = await chain.append(ev('a'));
+    const b = await chain.append(ev('b'));
+    expect(b.prevHash).toBe(a.hash);
+    expect(a.seq).toBe(0);
+    expect(b.seq).toBe(1);
+  });
+
+  it('detects tampering (modification breaks the chain)', async () => {
+    const chain = new AuditChain();
+    await chain.append(ev('a'));
+    await chain.append(ev('b'));
     // Tamper with an internal event via a cast into the private array.
     (chain as any).events[0].entityId = 'HACKED';
-    expect(chain.verify()).toBe(false);
+    expect(await chain.verify()).toBe(false);
   });
 
-  it('filters events by action', () => {
+  it('filters events by action', async () => {
     const chain = new AuditChain();
-    chain.append(ev('a', 'read'));
-    chain.append(ev('b', 'export'));
-    expect(chain.query({ action: 'export' })).toHaveLength(1);
+    await chain.append(ev('a', 'read'));
+    await chain.append(ev('b', 'export'));
+    expect(await chain.query({ action: 'export' })).toHaveLength(1);
   });
 
-  it('generates a deterministic-shape evidence pack', () => {
+  it('generates a deterministic-shape evidence pack', async () => {
     const chain = new AuditChain();
-    chain.append(ev('a'));
-    chain.append(ev('b'));
-    const pack = chain.generatePack('2026-Q2', '2000-01-01T00:00:00Z', '2100-01-01T00:00:00Z');
+    await chain.append(ev('a'));
+    await chain.append(ev('b'));
+    const pack = await chain.generatePack('2026-Q2', '2000-01-01T00:00:00Z', '2100-01-01T00:00:00Z');
     expect(pack.eventCount).toBe(2);
     expect(pack.hash).toMatch(/^[a-f0-9]{64}$/);
     expect(pack.merkleRoot).toMatch(/^[a-f0-9]{64}$/);

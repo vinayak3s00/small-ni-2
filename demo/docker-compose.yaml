@@ -1,7 +1,7 @@
 # Copyright (c) 2026 Abetworks (abetworks.in). All rights reserved.
 # Abetworks Proprietary and Confidential.
 #
-# Sales demo: one Postgres + all six production-grade services, each with RLS
+# Sales demo: one Postgres + all seven production-grade services, each with RLS
 # isolation. Run from the REPO ROOT:
 #   docker compose -f demo/docker-compose.yaml up --build
 # Then run the smoke test:
@@ -85,4 +85,15 @@ services:
       JWT_SECRET: demo-secret
       PORT: "3006"
     ports: ["3006:3006"]
+    depends_on: { postgres: { condition: service_healthy } }
+
+  audit-evidence-svc:
+    build:
+      context: ..
+      dockerfile: niche-plans/02-abettrust/scaffolding/services/audit-evidence-svc/Dockerfile
+    environment:
+      DATABASE_URL: postgres://postgres:dev@postgres:5432/abettrust
+      JWT_SECRET: demo-secret
+      PORT: "3002"
+    ports: ["3002:3002"]
     depends_on: { postgres: { condition: service_healthy } }
