@@ -1,0 +1,25 @@
+vertical: realty
+product: AbetRealty
+version: 1.0.0
+compat: ">=1.0.0 <2.0.0"
+intents:
+  - site_visit_request
+  - budget_qualification
+  - loan_assistance
+  - reschedule
+entities: [budget_band, configuration, possession_pref, project, cp_code]
+scoring:
+  signals:
+    ready_to_move_budget_match: 30
+    site_visit_intent: 25
+    verified_phone: 15
+    financing_ready: 10
+  reasonCodes: true
+compliance:
+  dnd_check: required
+  rera_claims: enforced
+  audit: append_only
+benchmarks:
+  first_response_seconds: 60
+  site_visit_lift_pct: 30
+  attribution_coverage_pct: 95

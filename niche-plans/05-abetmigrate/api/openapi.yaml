@@ -1,0 +1,55 @@
+openapi: 3.0.3
+info:
+  title: AbetMigrate API
+  version: 1.0.0
+  description: Consolidation-as-a-Service migration platform.
+servers:
+  - url: https://migrate.abetworks.in/v1
+security:
+  - bearerAuth: []
+paths:
+  /migrations:
+    post:
+      summary: Start a migration (audit phase)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [sources]
+              properties:
+                sources:
+                  type: array
+                  items: { type: string, enum: [salesforce, hubspot, pipedrive, zapier, helpdesk, csv] }
+      responses: { '201': { description: Created } }
+  /migrations/{id}/mapping:
+    put:
+      summary: Set/confirm field mappings
+      parameters: [ { name: id, in: path, required: true, schema: { type: string } } ]
+      responses: { '200': { description: OK } }
+  /migrations/{id}/reconcile:
+    post:
+      summary: Run dual-run reconciliation
+      parameters: [ { name: id, in: path, required: true, schema: { type: string } } ]
+      responses: { '200': { description: Reconciliation report } }
+  /migrations/{id}/cutover:
+    post:
+      summary: Execute cutover (requires passed reconciliation)
+      parameters: [ { name: id, in: path, required: true, schema: { type: string } } ]
+      responses:
+        '202': { description: Cutover started }
+        '412': { description: Reconciliation not passed }
+  /migrations/{id}/rollback:
+    post:
+      summary: Roll back a cutover
+      parameters: [ { name: id, in: path, required: true, schema: { type: string } } ]
+      responses: { '202': { description: Rollback started } }
+  /migrations/{id}/savings-report:
+    get:
+      summary: Consolidation savings model
+      parameters: [ { name: id, in: path, required: true, schema: { type: string } } ]
+      responses: { '200': { description: OK } }
+components:
+  securitySchemes:
+    bearerAuth: { type: http, scheme: bearer, bearerFormat: JWT }

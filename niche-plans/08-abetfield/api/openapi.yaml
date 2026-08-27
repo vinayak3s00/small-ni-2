@@ -1,0 +1,65 @@
+openapi: 3.0.3
+info:
+  title: AbetField API
+  version: 1.0.0
+  description: Offline-first field-sales capture and sync for FMCG/distribution.
+servers:
+  - url: https://field.abetworks.in/v1
+security:
+  - bearerAuth: []
+paths:
+  /sync:
+    post:
+      summary: Push offline-captured mutations (idempotent) and pull deltas
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [lastOpId, mutations]
+              properties:
+                lastOpId: { type: string }
+                mutations:
+                  type: array
+                  items:
+                    type: object
+                    required: [clientMutationId, entity, op, payload]
+                    properties:
+                      clientMutationId: { type: string }
+                      entity: { type: string, enum: [visit, field_order, stock_position] }
+                      op: { type: string, enum: [create, update] }
+                      payload: { type: object }
+      responses:
+        '200':
+          description: Applied + deltas since cursor
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  applied: { type: array, items: { type: string } }
+                  conflicts: { type: array, items: { type: object } }
+                  deltas: { type: array, items: { type: object } }
+                  newOpId: { type: string }
+  /beat-plans:
+    get:
+      summary: Get today's beat plan for the rep
+      responses: { '200': { description: OK } }
+  /visits/check-in:
+    post:
+      summary: Geo-verified outlet check-in
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [outletId, geo]
+              properties:
+                outletId: { type: string, format: uuid }
+                geo: { type: object, properties: { lat: { type: number }, lng: { type: number } } }
+      responses: { '201': { description: Checked in } }
+components:
+  securitySchemes:
+    bearerAuth: { type: http, scheme: bearer, bearerFormat: JWT }

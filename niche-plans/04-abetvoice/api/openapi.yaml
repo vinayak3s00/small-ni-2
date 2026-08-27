@@ -1,0 +1,40 @@
+openapi: 3.0.3
+info:
+  title: AbetVoice API
+  version: 1.0.0
+  description: Multilingual AI voice & telephony agents on the Abetworks platform.
+servers:
+  - url: https://voice.abetworks.in/v1
+security:
+  - bearerAuth: []
+paths:
+  /calls/outbound:
+    post:
+      summary: Place an outbound call (DND-checked)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [recordId, toE164, language, purpose]
+              properties:
+                recordId: { type: string, format: uuid }
+                toE164: { type: string, example: "+9198XXXXXXXX" }
+                language: { type: string, example: hi }
+                purpose: { type: string, enum: [speed_to_lead, reminder, followup, survey] }
+      responses:
+        '202': { description: Call queued }
+        '403': { description: Blocked by DND/consent }
+  /calls/{id}/summary:
+    get:
+      summary: Get transcript summary + intents + citations
+      parameters: [ { name: id, in: path, required: true, schema: { type: string } } ]
+      responses: { '200': { description: OK } }
+  /webhooks/telephony:
+    post:
+      summary: Inbound call / media event webhook
+      responses: { '200': { description: Ack } }
+components:
+  securitySchemes:
+    bearerAuth: { type: http, scheme: bearer, bearerFormat: JWT }
