@@ -1,3 +1,10 @@
+/*
+ * Copyright (c) 2026 Abetworks (abetworks.in). All rights reserved.
+ * Abetworks Proprietary and Confidential. Unauthorized copying, distribution,
+ * or use of this file, via any medium, is strictly prohibited.
+ * See the LICENSE file at the repository root. Contact: legal@abetworks.in
+ */
+
 import { randomUUID } from 'node:crypto';
 import { getTenantId } from '@abetworks/core';
 
