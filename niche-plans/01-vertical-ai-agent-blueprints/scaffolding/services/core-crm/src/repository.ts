@@ -32,6 +32,8 @@ export interface BookingRow {
   version: number;
 }
 
+export type NewRecord = Omit<RecordRow, 'id' | 'tenantId' | 'stage' | 'createdAt'>;
+
 export class SlotTakenError extends Error {
   constructor() {
     super('slot no longer available');
@@ -40,15 +42,29 @@ export class SlotTakenError extends Error {
 }
 
 /**
- * In-memory repository that emulates the platform's tenant isolation: every
- * read/write is filtered by the current tenant (as PostgreSQL RLS would do).
- * Swap for a pg-backed implementation using `withTenantScope` in production.
+ * Repository contract implemented by both the in-memory (tests/dev) and the
+ * PostgreSQL-backed (production) stores. All methods are tenant-scoped: the
+ * pg implementation relies on RLS + withTenantScope, so callers never pass a
+ * tenant id — it comes from the request's tenant context.
  */
-export class InMemoryRepo {
+export interface CrmRepository {
+  createRecord(input: NewRecord): Promise<RecordRow>;
+  listRecords(filter?: { minScore?: number }): Promise<RecordRow[]>;
+  getRecord(id: string): Promise<RecordRow | undefined>;
+  setScore(id: string, score: number, reasons: string[]): Promise<RecordRow | undefined>;
+  book(recordId: string, resourceId: string, slotStart: string): Promise<BookingRow>;
+}
+
+/**
+ * In-memory repository that emulates the platform's tenant isolation: every
+ * read/write is filtered by the current tenant (as PostgreSQL RLS does).
+ * Used for unit tests and local dev without a database.
+ */
+export class InMemoryRepo implements CrmRepository {
   private records: RecordRow[] = [];
   private bookings: BookingRow[] = [];
 
-  createRecord(input: Omit<RecordRow, 'id' | 'tenantId' | 'stage' | 'createdAt'>): RecordRow {
+  async createRecord(input: NewRecord): Promise<RecordRow> {
     const row: RecordRow = {
       id: randomUUID(),
       tenantId: getTenantId(),
@@ -60,20 +76,20 @@ export class InMemoryRepo {
     return row;
   }
 
-  listRecords(filter: { minScore?: number } = {}): RecordRow[] {
+  async listRecords(filter: { minScore?: number } = {}): Promise<RecordRow[]> {
     const tenantId = getTenantId();
     return this.records
       .filter((r) => r.tenantId === tenantId)
       .filter((r) => (filter.minScore == null ? true : (r.score ?? 0) >= filter.minScore));
   }
 
-  getRecord(id: string): RecordRow | undefined {
+  async getRecord(id: string): Promise<RecordRow | undefined> {
     const tenantId = getTenantId();
     return this.records.find((r) => r.id === id && r.tenantId === tenantId);
   }
 
-  setScore(id: string, score: number, reasons: string[]): RecordRow | undefined {
-    const row = this.getRecord(id);
+  async setScore(id: string, score: number, reasons: string[]): Promise<RecordRow | undefined> {
+    const row = await this.getRecord(id);
     if (row) {
       row.score = score;
       row.scoreReasons = reasons;
@@ -81,12 +97,7 @@ export class InMemoryRepo {
     return row;
   }
 
-  /**
-   * Book a slot with an optimistic uniqueness guarantee: two concurrent
-   * bookings for the same (resourceId, slotStart) cannot both succeed.
-   * Mirrors the DB `UNIQUE(resource_id, slot_start)` + version lock.
-   */
-  book(recordId: string, resourceId: string, slotStart: string): BookingRow {
+  async book(recordId: string, resourceId: string, slotStart: string): Promise<BookingRow> {
     const tenantId = getTenantId();
     const clash = this.bookings.find(
       (b) =>

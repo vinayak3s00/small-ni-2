@@ -13,11 +13,11 @@ import {
   AuditLogger,
   InMemoryAuditSink,
 } from '@abetworks/core';
-import { InMemoryRepo, SlotTakenError, type Vertical } from './repository';
+import { InMemoryRepo, SlotTakenError, type CrmRepository, type Vertical } from './repository';
 
 const JWT_SECRET = process.env.JWT_SECRET ?? 'dev-secret-change-me';
 
-export function buildServer(repo = new InMemoryRepo()): FastifyInstance {
+export function buildServer(repo: CrmRepository = new InMemoryRepo()): FastifyInstance {
   const app = Fastify({ logger: false });
   const audit = new AuditLogger(new InMemoryAuditSink());
 
@@ -33,7 +33,7 @@ export function buildServer(repo = new InMemoryRepo()): FastifyInstance {
     }
   });
 
-  const withCtx = <T>(req: any, fn: () => T): T =>
+  const withCtx = <T>(req: any, fn: () => Promise<T>): Promise<T> =>
     runWithPrincipal(req.principal, fn);
 
   app.get('/healthz', async () => ({ status: 'ok' }));
@@ -44,7 +44,7 @@ export function buildServer(repo = new InMemoryRepo()): FastifyInstance {
       return reply.code(400).send({ error: 'vertical, party.name and source are required' });
     }
     const row = await withCtx(req, async () => {
-      const created = repo.createRecord({
+      const created = await repo.createRecord({
         vertical: body.vertical as Vertical,
         source: body.source,
         party: {
@@ -71,7 +71,7 @@ export function buildServer(repo = new InMemoryRepo()): FastifyInstance {
     }
     try {
       const booking = await withCtx(req, async () => {
-        const b = repo.book(recordId, resourceId, slotStart);
+        const b = await repo.book(recordId, resourceId, slotStart);
         await audit.record('write', 'booking', b.id);
         return b;
       });
@@ -87,12 +87,36 @@ export function buildServer(repo = new InMemoryRepo()): FastifyInstance {
   return app;
 }
 
+/**
+ * Choose the repository: Postgres when DATABASE_URL is set (production),
+ * in-memory otherwise (local dev / tests). Kept in a lazy factory so the
+ * `pg` module is only loaded when actually needed.
+ */
+export async function resolveRepo(): Promise<CrmRepository> {
+  if (!process.env.DATABASE_URL) return new InMemoryRepo();
+  const { createPool, migrate } = await import('./db');
+  const { PgRepo } = await import('./pg-repository');
+  const pool = createPool();
+  await migrate(pool);
+  return new PgRepo(pool);
+}
+
 // Boot when run directly.
 if (require.main === module) {
-  const app = buildServer();
-  const port = Number(process.env.PORT ?? 3001);
-  app.listen({ port, host: '0.0.0.0' }).then(() => {
-    // eslint-disable-next-line no-console
-    console.log(`core-crm listening on :${port}`);
-  });
+  resolveRepo()
+    .then((repo) => {
+      const app = buildServer(repo);
+      const port = Number(process.env.PORT ?? 3001);
+      return app.listen({ port, host: '0.0.0.0' }).then(() => {
+        // eslint-disable-next-line no-console
+        console.log(
+          `core-crm listening on :${port} (${process.env.DATABASE_URL ? 'postgres' : 'in-memory'})`,
+        );
+      });
+    })
+    .catch((err) => {
+      // eslint-disable-next-line no-console
+      console.error('failed to start:', err.message);
+      process.exit(1);
+    });
 }
