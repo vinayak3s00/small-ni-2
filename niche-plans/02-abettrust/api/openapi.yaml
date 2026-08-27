@@ -1,0 +1,84 @@
+openapi: 3.0.3
+info:
+  title: AbetTrust API
+  version: 1.0.0
+  description: Governance, policy enforcement, grounding, and audit-evidence API.
+servers:
+  - url: https://trust.abetworks.in/v1
+security:
+  - bearerAuth: []
+paths:
+  /policy/evaluate:
+    post:
+      summary: Evaluate an action against tenant policy packs (PDP)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [actor, action, resource]
+              properties:
+                actor: { type: object }
+                action: { type: string, example: export }
+                resource: { type: string, example: kyc_record }
+                fields: { type: array, items: { type: string } }
+      responses:
+        '200':
+          description: Decision
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  decision: { type: string, enum: [allow, deny] }
+                  reasons: { type: array, items: { type: string } }
+  /grounding/check:
+    post:
+      summary: Verify agent output is grounded in approved sources
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [messageId, text]
+              properties:
+                messageId: { type: string }
+                text: { type: string }
+      responses:
+        '200':
+          description: Result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  passed: { type: boolean }
+                  citations: { type: array, items: { type: string } }
+  /audit/events:
+    get:
+      summary: Query the append-only audit log (compliance role)
+      parameters:
+        - { name: from, in: query, schema: { type: string, format: date-time } }
+        - { name: to, in: query, schema: { type: string, format: date-time } }
+        - { name: action, in: query, schema: { type: string, enum: [read, write, export] } }
+      responses:
+        '200': { description: OK }
+  /evidence/packs:
+    post:
+      summary: Generate a hash-chained auditor evidence pack
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [period]
+              properties:
+                period: { type: string, example: 2026-Q2 }
+      responses:
+        '202': { description: Generation started }
+components:
+  securitySchemes:
+    bearerAuth: { type: http, scheme: bearer, bearerFormat: JWT }

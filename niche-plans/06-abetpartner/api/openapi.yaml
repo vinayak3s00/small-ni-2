@@ -1,0 +1,53 @@
+openapi: 3.0.3
+info:
+  title: AbetPartner API
+  version: 1.0.0
+  description: White-label, hierarchical multi-tenant management for agencies.
+servers:
+  - url: https://partner.abetworks.in/v1
+security:
+  - bearerAuth: []
+paths:
+  /workspaces:
+    post:
+      summary: Provision a new client workspace (isolated tenant)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [clientName]
+              properties:
+                clientName: { type: string }
+                plan: { type: string }
+      responses: { '201': { description: Created } }
+    get:
+      summary: List client workspaces
+      responses: { '200': { description: OK } }
+  /branding:
+    put:
+      summary: Set white-label branding (domain, logo, theme, email identity)
+      responses: { '200': { description: OK } }
+  /billing/rollup:
+    get:
+      summary: Per-workspace usage + partner margin
+      parameters: [ { name: period, in: query, schema: { type: string, example: 2026-06 } } ]
+      responses: { '200': { description: OK } }
+  /reports:
+    post:
+      summary: Generate a white-labelled client report
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [workspaceId, templateId]
+              properties:
+                workspaceId: { type: string }
+                templateId: { type: string }
+      responses: { '202': { description: Generating } }
+components:
+  securitySchemes:
+    bearerAuth: { type: http, scheme: bearer, bearerFormat: JWT }

@@ -1,0 +1,113 @@
+openapi: 3.0.3
+info:
+  title: AbetVerticals API
+  version: 1.0.0
+  description: >
+    Vertical AI agent API (AbetRealty / AbetCare / AbetAdmit) on the Abetworks
+    platform baseline. Multi-tenant; tenant derived from the auth principal.
+servers:
+  - url: https://verticals.abetworks.in/v1
+security:
+  - bearerAuth: []
+paths:
+  /records:
+    post:
+      summary: Ingest an enquiry/lead/patient/applicant (normalized into one record)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RecordCreate' }
+      responses:
+        '201': { description: Created, content: { application/json: { schema: { $ref: '#/components/schemas/Record' } } } }
+    get:
+      summary: List records (tenant + RLS scoped)
+      parameters:
+        - { name: stage, in: query, schema: { type: string } }
+        - { name: minScore, in: query, schema: { type: integer } }
+      responses:
+        '200': { description: OK }
+  /records/{id}/score:
+    get:
+      summary: Get explainable score with reason codes
+      parameters: [ { name: id, in: path, required: true, schema: { type: string, format: uuid } } ]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  score: { type: integer, example: 84 }
+                  reasons:
+                    type: array
+                    items: { type: string, example: "ready-to-move budget match" }
+                  refreshedAt: { type: string, format: date-time }
+  /bookings:
+    post:
+      summary: Book a slot (optimistic-locked, no double-book)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [recordId, resourceId, slotStart]
+              properties:
+                recordId: { type: string, format: uuid }
+                resourceId: { type: string }
+                slotStart: { type: string, format: date-time }
+      responses:
+        '201': { description: Booked }
+        '409': { description: Slot no longer available }
+  /agent/messages:
+    post:
+      summary: Send an inbound message to the vertical agent (cited answers only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [conversationId, body]
+              properties:
+                conversationId: { type: string, format: uuid }
+                body: { type: string }
+      responses:
+        '200':
+          description: Agent reply with citations or escalation
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  reply: { type: string }
+                  citations: { type: array, items: { type: string } }
+                  escalated: { type: boolean }
+components:
+  securitySchemes:
+    bearerAuth: { type: http, scheme: bearer, bearerFormat: JWT }
+  schemas:
+    RecordCreate:
+      type: object
+      required: [vertical, party, source]
+      properties:
+        vertical: { type: string, enum: [realty, care, admit] }
+        source: { type: string }
+        subSource: { type: string }
+        party:
+          type: object
+          properties:
+            name: { type: string }
+            phones: { type: array, items: { type: string } }
+            languages: { type: array, items: { type: string } }
+        overlay: { type: object, description: Vertical-specific fields }
+    Record:
+      allOf:
+        - $ref: '#/components/schemas/RecordCreate'
+        - type: object
+          properties:
+            id: { type: string, format: uuid }
+            stage: { type: string }
+            score: { type: integer }

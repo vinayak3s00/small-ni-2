@@ -1,0 +1,65 @@
+openapi: 3.0.3
+info:
+  title: AbetConcierge API
+  version: 1.0.0
+  description: WhatsApp-first conversational commerce concierge with CRM + GST quoting.
+servers:
+  - url: https://concierge.abetworks.in/v1
+security:
+  - bearerAuth: []
+paths:
+  /webhooks/whatsapp:
+    post:
+      summary: Inbound WhatsApp webhook (BSP)
+      responses: { '200': { description: Ack } }
+  /conversations/{id}/reply:
+    post:
+      summary: Agent reply (cited, or escalate to human)
+      parameters: [ { name: id, in: path, required: true, schema: { type: string } } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties: { body: { type: string } }
+      responses: { '200': { description: OK } }
+  /quotes:
+    post:
+      summary: Generate a GST-aware, multi-currency quote
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [recordId, items, currency]
+              properties:
+                recordId: { type: string, format: uuid }
+                currency: { type: string, example: INR }
+                items:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      sku: { type: string }
+                      qty: { type: integer }
+      responses:
+        '201':
+          description: Quote
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  subtotalMinor: { type: integer }
+                  gstMinor: { type: integer }
+                  totalMinor: { type: integer }
+                  currency: { type: string }
+  /graduate:
+    post:
+      summary: Promote tenant from concierge tier into the full suite (no migration)
+      responses: { '202': { description: Promotion started } }
+components:
+  securitySchemes:
+    bearerAuth: { type: http, scheme: bearer, bearerFormat: JWT }
