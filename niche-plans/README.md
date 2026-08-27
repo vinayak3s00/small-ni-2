@@ -101,7 +101,7 @@ Beyond the design docs, each product ships **runnable, tested service code** und
 
 ### Production-grade, sales-ready services
 
-Four services are backed by **real PostgreSQL with per-tenant Row-Level Security**,
+Six services are backed by **real PostgreSQL with per-tenant Row-Level Security**,
 SQL migrations, Docker Compose, and DB integration tests — not in-memory demos:
 
 | Service | Port | Production guarantee (DB-enforced) |
@@ -110,6 +110,8 @@ SQL migrations, Docker Compose, and DB integration tests — not in-memory demos
 | `attribution-svc` | 3011 | Append-only ledger (trigger blocks UPDATE/DELETE) |
 | `kyc-svc` | 3007 | KYC state machine + append-only disclosure trail |
 | `order-svc` | 3013 | Atomic stock allocation — overselling impossible |
+| `partner-admin-svc` | 3006 | Hierarchical tenancy — partner is the RLS boundary |
+| `sync-gateway` | 3008 | Durable append-only op-log — idempotent replay survives restarts |
 
 Run the whole thing as a **one-command sales demo** (see [`demo/`](../demo/README.md)):
 
@@ -123,7 +125,7 @@ bash demo/smoke.sh    # 7 end-to-end checks: lead -> attribution -> KYC -> order
 `.github/workflows/ci.yml` runs on every push and PR:
 - **`license-headers`** — `scripts/check_license_headers.sh` fails the build if any source file is missing the proprietary header.
 - **`tests`** — `scripts/run_all_tests.sh` builds `@abetworks/core` then runs every TS (vitest) and Python (pytest) suite; the job fails if any suite fails.
-- **`db-integration`** — a matrix job spins up Postgres and runs the real integration tests for `core-crm`, `attribution-svc`, `kyc-svc`, and `order-svc`.
+- **`db-integration`** — a matrix job spins up Postgres and runs the real integration tests for `core-crm`, `attribution-svc`, `kyc-svc`, `order-svc`, `partner-admin-svc`, and `sync-gateway`.
 
 Run the same checks locally:
 ```bash

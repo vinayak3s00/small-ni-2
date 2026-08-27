@@ -10,11 +10,14 @@ import { getTenantId } from '@abetworks/core';
 /**
  * AbetField offline-first sync. Reliability guarantees from the plan:
  *   * Idempotent replay: every mutation carries a client-generated id; replays
- *     are safe (applied-once).
+ *     are safe (applied-once) — durable across restarts in the Postgres store.
  *   * Deterministic per-entity conflict resolution:
  *       - visit          -> append-only (never overwritten)
  *       - stock_position -> server-authoritative (server wins on conflict)
  *       - field_order    -> last-writer-wins by client timestamp
+ *
+ * Two implementations satisfy SyncStore: an in-memory engine (tests/dev) and a
+ * PostgreSQL-backed engine (see pg-sync.ts) with a durable, append-only op-log.
  */
 
 export type Entity = 'visit' | 'field_order' | 'stock_position';
@@ -28,23 +31,60 @@ export interface Mutation {
 }
 
 export interface SyncResult {
-  applied: string[]; // clientMutationIds newly applied
-  duplicates: string[]; // ignored (already applied)
+  applied: string[];
+  duplicates: string[];
   conflicts: { clientMutationId: string; resolution: string }[];
   newOpId: string;
 }
 
-interface StoredRow {
+export interface StoredRow {
   id: string;
   entity: Entity;
   data: Record<string, any>;
   updatedAt: string;
 }
 
-export class SyncEngine {
-  // tenant -> set of applied client mutation ids (idempotency)
+export interface SyncStore {
+  sync(mutations: Mutation[]): Promise<SyncResult>;
+  getRow(entity: Entity, id: string): Promise<StoredRow | undefined>;
+}
+
+/** The key a mutation writes to. Visits are append-only, keyed by mutation id. */
+export function rowKeyFor(m: Mutation): string {
+  return m.entity === 'visit' ? m.clientMutationId : String(m.payload.id);
+}
+
+export interface Decision {
+  write: boolean;
+  resolution: string; // 'applied' or a conflict label
+}
+
+/**
+ * Pure per-entity conflict decision given the current stored row (if any) and
+ * the incoming mutation's effective timestamp. Shared by both stores.
+ */
+export function decide(m: Mutation, existing: StoredRow | undefined, now: string): Decision {
+  switch (m.entity) {
+    case 'visit':
+      // Append-only: always write (unique key = clientMutationId).
+      return { write: true, resolution: 'applied' };
+    case 'stock_position':
+      // Server-authoritative: keep the server's row if one exists.
+      return existing
+        ? { write: false, resolution: 'server_authoritative_kept' }
+        : { write: true, resolution: 'applied' };
+    case 'field_order':
+    default:
+      // Last-writer-wins by client timestamp.
+      return existing && existing.updatedAt >= now
+        ? { write: false, resolution: 'lww_existing_newer' }
+        : { write: true, resolution: 'applied' };
+  }
+}
+
+/** In-memory offline-sync engine (unit tests / dev). */
+export class SyncEngine implements SyncStore {
   private applied = new Map<string, Set<string>>();
-  // tenant -> entity:id -> row
   private rows = new Map<string, Map<string, StoredRow>>();
   private opCounter = 0;
 
@@ -52,79 +92,39 @@ export class SyncEngine {
     if (!this.applied.has(tenantId)) this.applied.set(tenantId, new Set());
     return this.applied.get(tenantId)!;
   }
-
   private rowMap(tenantId: string): Map<string, StoredRow> {
     if (!this.rows.has(tenantId)) this.rows.set(tenantId, new Map());
     return this.rows.get(tenantId)!;
   }
 
-  sync(mutations: Mutation[]): SyncResult {
+  async sync(mutations: Mutation[]): Promise<SyncResult> {
     const tenantId = getTenantId();
     const appliedIds = this.appliedSet(tenantId);
     const store = this.rowMap(tenantId);
-
-    const result: SyncResult = {
-      applied: [],
-      duplicates: [],
-      conflicts: [],
-      newOpId: '',
-    };
+    const result: SyncResult = { applied: [], duplicates: [], conflicts: [], newOpId: '' };
 
     for (const m of mutations) {
       if (appliedIds.has(m.clientMutationId)) {
-        result.duplicates.push(m.clientMutationId); // idempotent replay
+        result.duplicates.push(m.clientMutationId);
         continue;
       }
-
-      const key = `${m.entity}:${m.payload.id}`;
-      const existing = store.get(key);
-      const resolution = this.resolve(m, existing, store, key);
-
+      const now = m.payload.updatedAt ?? new Date().toISOString();
+      const key = `${m.entity}:${rowKeyFor(m)}`;
+      const decision = decide(m, store.get(key), now);
+      if (decision.write) {
+        store.set(key, { id: String(m.payload.id), entity: m.entity, data: m.payload, updatedAt: now });
+      }
       appliedIds.add(m.clientMutationId);
       result.applied.push(m.clientMutationId);
-      if (resolution !== 'applied') {
-        result.conflicts.push({ clientMutationId: m.clientMutationId, resolution });
+      if (decision.resolution !== 'applied') {
+        result.conflicts.push({ clientMutationId: m.clientMutationId, resolution: decision.resolution });
       }
     }
-
     result.newOpId = `op-${++this.opCounter}`;
     return result;
   }
 
-  /** Returns 'applied' or a conflict-resolution label. */
-  private resolve(
-    m: Mutation,
-    existing: StoredRow | undefined,
-    store: Map<string, StoredRow>,
-    key: string,
-  ): string {
-    const now = m.payload.updatedAt ?? new Date().toISOString();
-
-    switch (m.entity) {
-      case 'visit': {
-        // Append-only: visits are immutable field records. Always store; never overwrite.
-        const visitKey = `visit:${m.clientMutationId}`;
-        store.set(visitKey, { id: m.payload.id, entity: 'visit', data: m.payload, updatedAt: now });
-        return 'applied';
-      }
-      case 'stock_position': {
-        // Server-authoritative: if a row already exists, the server value wins.
-        if (existing) return 'server_authoritative_kept';
-        store.set(key, { id: m.payload.id, entity: m.entity, data: m.payload, updatedAt: now });
-        return 'applied';
-      }
-      case 'field_order':
-      default: {
-        // Last-writer-wins by client timestamp.
-        if (existing && existing.updatedAt >= now) return 'lww_existing_newer';
-        store.set(key, { id: m.payload.id, entity: m.entity, data: m.payload, updatedAt: now });
-        return 'applied';
-      }
-    }
-  }
-
-  // Test/inspection helper.
-  getRow(entity: Entity, id: string): StoredRow | undefined {
+  async getRow(entity: Entity, id: string): Promise<StoredRow | undefined> {
     return this.rowMap(getTenantId()).get(`${entity}:${id}`);
   }
 }

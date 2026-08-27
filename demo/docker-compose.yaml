@@ -1,8 +1,8 @@
 # Copyright (c) 2026 Abetworks (abetworks.in). All rights reserved.
 # Abetworks Proprietary and Confidential.
 #
-# Sales demo: one Postgres + all four production-grade services, each with its
-# own database and RLS isolation. Run from the REPO ROOT:
+# Sales demo: one Postgres + all six production-grade services, each with RLS
+# isolation. Run from the REPO ROOT:
 #   docker compose -f demo/docker-compose.yaml up --build
 # Then run the smoke test:
 #   bash demo/smoke.sh
@@ -63,4 +63,26 @@ services:
       JWT_SECRET: demo-secret
       PORT: "3013"
     ports: ["3013:3013"]
+    depends_on: { postgres: { condition: service_healthy } }
+
+  sync-gateway:
+    build:
+      context: ..
+      dockerfile: niche-plans/08-abetfield/scaffolding/services/sync-gateway/Dockerfile
+    environment:
+      DATABASE_URL: postgres://postgres:dev@postgres:5432/abetfield
+      JWT_SECRET: demo-secret
+      PORT: "3008"
+    ports: ["3008:3008"]
+    depends_on: { postgres: { condition: service_healthy } }
+
+  partner-admin-svc:
+    build:
+      context: ..
+      dockerfile: niche-plans/06-abetpartner/scaffolding/services/partner-admin-svc/Dockerfile
+    environment:
+      DATABASE_URL: postgres://postgres:dev@postgres:5432/abetpartner
+      JWT_SECRET: demo-secret
+      PORT: "3006"
+    ports: ["3006:3006"]
     depends_on: { postgres: { condition: service_healthy } }

@@ -6,3 +6,4 @@
 CREATE DATABASE abetverticals;
 CREATE DATABASE abettrust;
 CREATE DATABASE abetfield;
+CREATE DATABASE abetpartner;

@@ -50,6 +50,10 @@ jobs:
             dir: niche-plans/02-abettrust/scaffolding/services/kyc-svc
           - name: order-svc
             dir: niche-plans/08-abetfield/scaffolding/services/order-svc
+          - name: sync-gateway
+            dir: niche-plans/08-abetfield/scaffolding/services/sync-gateway
+          - name: partner-admin-svc
+            dir: niche-plans/06-abetpartner/scaffolding/services/partner-admin-svc
     services:
       postgres:
         image: postgres:16-alpine
