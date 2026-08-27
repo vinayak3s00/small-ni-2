@@ -76,23 +76,40 @@ Beyond the design docs, each product ships **runnable, tested service code** und
 | AbetVerticals | `core-crm` | TS/Fastify | auth + tenant isolation + no-double-book optimistic lock | 3 |
 | AbetVerticals | `scoring-svc` | Py/FastAPI | explainable scoring with ordered reason codes, per-vertical packs | 5 |
 | AbetVerticals | `agent-orchestrator` | Py/FastAPI | guardrail-first + RAG cited answers + escalation-with-summary | 6 |
+| AbetVerticals | `attribution-svc` | TS/Fastify | append-only attribution ledger, first/last/linear models | 6 |
 | AbetTrust | `policy-engine` | Py/FastAPI | PDP: export role checks, field masking, citation-grounding gate | 7 |
 | AbetTrust | `audit-evidence-svc` | TS/Fastify | tamper-evident hash-chained audit + evidence packs | 4 |
 | AbetTrust | `kyc-svc` | TS/Fastify | KYC/suitability state machine + append-only disclosure trail | 6 |
 | AbetConcierge | `quoting-svc` | TS/Fastify | GST-aware multi-currency quotes (minor units) + WhatsApp opt-in guard | 8 |
 | AbetConcierge | `concierge-agent` | Py/FastAPI | cross-channel identity unification + commerce intent routing | 8 |
+| AbetConcierge | `channel-gw` | TS/Fastify | WhatsApp verify handshake + HMAC signature + inbound normalize | 7 |
 | AbetVoice | `telephony-svc` | TS/Fastify | DND gate, ungrounded-call escalation, PII-redacted transcripts | 5 |
 | AbetVoice | `voice-orchestrator` | Py/FastAPI | turn-taking state machine with barge-in handling | 8 |
 | AbetMigrate | `mapping-engine` | Py/FastAPI | field mapping, idempotent cutover, reversible rollback journal | 6 |
 | AbetMigrate | `reconciliation-svc` | Py/FastAPI | dual-run compare + hard/soft metrics + cutover gate | 5 |
+| AbetMigrate | `source-connectors` | Py/FastAPI | CSV/HubSpot extractors → staging records with provenance | 7 |
 | AbetPartner | `partner-admin-svc` | TS/Fastify | hierarchical tenancy, scoped grants, billing rollup + margin | 5 |
 | AbetPartner | `reporting-svc` | TS/Fastify | grant-gated, white-labelled report generation | 3 |
 | AbetRetain | `retention-svc` | Py/FastAPI | idempotent order ingest, explainable LTV/churn, frequency caps | 6 |
 | AbetRetain | `journey-engine` | Py/FastAPI | event-driven post-purchase cadence, idempotent + capped | 6 |
+| AbetRetain | `support-agent` | Py/FastAPI | WISMO/returns cited resolution + confidence-gated escalation | 8 |
 | AbetField | `sync-gateway` | TS/Fastify | offline idempotent replay + per-entity conflict resolution | 4 |
 | AbetField | `route-svc` | TS/Fastify | beat plans + haversine geo-verified check-in | 6 |
+| AbetField | `order-svc` | TS/Fastify | GST-aware field orders + all-or-nothing stock allocation | 5 |
 
-**Total: 19 services, 106 tests, all green.** All source files carry the Abetworks proprietary header (see `LICENSE`).
+**Total: 24 services, 141 tests, all green.** All source files carry the Abetworks proprietary header (see `LICENSE`).
+
+### Continuous integration
+
+`.github/workflows/ci.yml` runs on every push and PR:
+- **`license-headers`** — `scripts/check_license_headers.sh` fails the build if any source file is missing the proprietary header.
+- **`tests`** — `scripts/run_all_tests.sh` builds `@abetworks/core` then runs every TS (vitest) and Python (pytest) suite; the job fails if any suite fails.
+
+Run the same checks locally:
+```bash
+bash scripts/check_license_headers.sh   # header enforcement
+bash scripts/run_all_tests.sh           # all service suites
+```
 
 ### Running a service locally
 
