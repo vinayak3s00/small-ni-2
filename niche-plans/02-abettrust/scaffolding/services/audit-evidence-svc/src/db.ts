@@ -22,11 +22,11 @@ const MIGRATIONS_DIR = join(__dirname, '..', 'migrations');
  * every tenant transaction as this role. Idempotent + safe to call each boot.
  */
 export async function ensureRlsRole(pool: Pool, role = process.env.APP_RLS_ROLE ?? 'app_rls'): Promise<void> {
-  await pool.query(`DO $ BEGIN
+  await pool.query(`DO $$ BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '${role}') THEN
       CREATE ROLE "${role}" NOLOGIN;
     END IF;
-  END $;`);
+  END $$;`);
   await pool.query(`GRANT USAGE ON SCHEMA public TO "${role}"`);
   await pool.query(`GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO "${role}"`);
   await pool.query(`GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO "${role}"`);
