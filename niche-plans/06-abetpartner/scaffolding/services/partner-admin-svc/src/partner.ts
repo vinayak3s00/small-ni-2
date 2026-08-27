@@ -1,10 +1,20 @@
+/*
+ * Copyright (c) 2026 Abetworks (abetworks.in). All rights reserved.
+ * Abetworks Proprietary and Confidential. Unauthorized copying, distribution,
+ * or use of this file, via any medium, is strictly prohibited.
+ * See the LICENSE file at the repository root. Contact: legal@abetworks.in
+ */
+
 import { randomUUID } from 'node:crypto';
 
 /**
  * Hierarchical tenancy for AbetPartner: a partner (agency) owns many client
  * workspaces, each of which is an isolated tenant. Partner users can only see
  * a workspace's data through an explicit, scoped grant — never raw client PII
- * by default.
+ * by default. The PARTNER is the tenant boundary (partner_id = app.tenant_id).
+ *
+ * Two implementations satisfy PartnerStore: an in-memory store (tests/dev) and
+ * a PostgreSQL-backed store (see pg-partner.ts) with RLS isolation.
  */
 
 export interface Workspace {
@@ -14,11 +24,6 @@ export interface Workspace {
   clientName: string;
   status: 'active' | 'suspended';
   senderIdentity: string; // isolated sending domain/number
-}
-
-export interface WorkspaceGrant {
-  workspaceId: string;
-  scopes: string[]; // e.g. ['reports:read', 'pii:read']
 }
 
 export interface UsageRollupLine {
@@ -37,70 +42,95 @@ export class WorkspaceExistsError extends Error {
   }
 }
 
-export class PartnerRegistry {
+/** Derive a per-client isolated sending identity. Pure; shared by both stores. */
+export function senderIdentityFor(clientName: string): string {
+  return `${clientName.toLowerCase().replace(/\s+/g, '-')}.mail.abetworks.in`;
+}
+
+/** Compute one billing rollup line. Pure; shared by both stores. */
+export function rollupLine(
+  workspaceId: string,
+  clientName: string,
+  units: number,
+  wholesalePerUnitMinor: number,
+  retailPerUnitMinor: number,
+): UsageRollupLine {
+  const wholesale = units * wholesalePerUnitMinor;
+  const retail = units * retailPerUnitMinor;
+  return {
+    workspaceId,
+    clientName,
+    meteredUnits: units,
+    wholesaleCostMinor: wholesale,
+    retailPriceMinor: retail,
+    marginMinor: retail - wholesale,
+  };
+}
+
+export interface PartnerStore {
+  provision(partnerId: string, clientName: string): Promise<Workspace>;
+  listWorkspaces(partnerId: string): Promise<Workspace[]>;
+  grant(partnerId: string, workspaceId: string, scopes: string[]): Promise<void>;
+  canAccess(partnerId: string, workspaceId: string, scope: string): Promise<boolean>;
+  recordUsage(partnerId: string, workspaceId: string, units: number): Promise<void>;
+  billingRollup(
+    partnerId: string,
+    wholesalePerUnitMinor: number,
+    retailPerUnitMinor: number,
+  ): Promise<UsageRollupLine[]>;
+}
+
+/** In-memory hierarchical-tenancy store (unit tests / dev). */
+export class InMemoryPartnerStore implements PartnerStore {
   private workspaces: Workspace[] = [];
-  private grants = new Map<string, WorkspaceGrant[]>(); // partnerId -> grants
-  private usage = new Map<string, number>(); // workspaceId -> metered units
+  private grants = new Map<string, { workspaceId: string; scopes: string[] }[]>();
+  private usage = new Map<string, number>();
 
-  provision(partnerId: string, clientName: string): Workspace {
-    const clash = this.workspaces.find(
-      (w) => w.partnerId === partnerId && w.clientName === clientName,
-    );
-    if (clash) throw new WorkspaceExistsError(clientName);
-
-    const id = randomUUID();
+  async provision(partnerId: string, clientName: string): Promise<Workspace> {
+    if (this.workspaces.find((w) => w.partnerId === partnerId && w.clientName === clientName)) {
+      throw new WorkspaceExistsError(clientName);
+    }
     const ws: Workspace = {
-      id,
+      id: randomUUID(),
       partnerId,
-      tenantId: randomUUID(), // hard-isolated tenant
+      tenantId: randomUUID(),
       clientName,
       status: 'active',
-      senderIdentity: `${clientName.toLowerCase().replace(/\s+/g, '-')}.mail.abetworks.in`,
+      senderIdentity: senderIdentityFor(clientName),
     };
     this.workspaces.push(ws);
     return ws;
   }
 
-  listWorkspaces(partnerId: string): Workspace[] {
+  async listWorkspaces(partnerId: string): Promise<Workspace[]> {
     return this.workspaces.filter((w) => w.partnerId === partnerId);
   }
 
-  grant(partnerId: string, workspaceId: string, scopes: string[]): void {
+  async grant(partnerId: string, workspaceId: string, scopes: string[]): Promise<void> {
     const existing = this.grants.get(partnerId) ?? [];
     existing.push({ workspaceId, scopes });
     this.grants.set(partnerId, existing);
   }
 
-  /** Enforce the client-data wall: a partner may only access a workspace with a matching scope. */
-  canAccess(partnerId: string, workspaceId: string, scope: string): boolean {
+  async canAccess(partnerId: string, workspaceId: string, scope: string): Promise<boolean> {
     const ws = this.workspaces.find((w) => w.id === workspaceId);
-    if (!ws || ws.partnerId !== partnerId) return false; // cross-partner access denied
+    if (!ws || ws.partnerId !== partnerId) return false; // cross-partner denied
     const grants = this.grants.get(partnerId) ?? [];
     return grants.some((g) => g.workspaceId === workspaceId && g.scopes.includes(scope));
   }
 
-  recordUsage(workspaceId: string, units: number): void {
+  async recordUsage(partnerId: string, workspaceId: string, units: number): Promise<void> {
     this.usage.set(workspaceId, (this.usage.get(workspaceId) ?? 0) + units);
   }
 
-  /** Billing rollup with margin (retainer profitability). */
-  billingRollup(
+  async billingRollup(
     partnerId: string,
     wholesalePerUnitMinor: number,
     retailPerUnitMinor: number,
-  ): UsageRollupLine[] {
-    return this.listWorkspaces(partnerId).map((w) => {
-      const units = this.usage.get(w.id) ?? 0;
-      const wholesale = units * wholesalePerUnitMinor;
-      const retail = units * retailPerUnitMinor;
-      return {
-        workspaceId: w.id,
-        clientName: w.clientName,
-        meteredUnits: units,
-        wholesaleCostMinor: wholesale,
-        retailPriceMinor: retail,
-        marginMinor: retail - wholesale,
-      };
-    });
+  ): Promise<UsageRollupLine[]> {
+    const workspaces = await this.listWorkspaces(partnerId);
+    return workspaces.map((w) =>
+      rollupLine(w.id, w.clientName, this.usage.get(w.id) ?? 0, wholesalePerUnitMinor, retailPerUnitMinor),
+    );
   }
 }

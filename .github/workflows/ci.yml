@@ -1,0 +1,84 @@
+# Copyright (c) 2026 Abetworks (abetworks.in). All rights reserved.
+# Abetworks Proprietary and Confidential.
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  license-headers:
+    name: Proprietary header check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify proprietary headers
+        run: bash scripts/check_license_headers.sh
+
+  tests:
+    name: Service test suites
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+      - name: Run all service test suites
+        run: bash scripts/run_all_tests.sh
+
+  db-integration:
+    name: Postgres integration (${{ matrix.name }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: core-crm
+            dir: niche-plans/01-vertical-ai-agent-blueprints/scaffolding/services/core-crm
+          - name: attribution-svc
+            dir: niche-plans/01-vertical-ai-agent-blueprints/scaffolding/services/attribution-svc
+          - name: kyc-svc
+            dir: niche-plans/02-abettrust/scaffolding/services/kyc-svc
+          - name: order-svc
+            dir: niche-plans/08-abetfield/scaffolding/services/order-svc
+          - name: sync-gateway
+            dir: niche-plans/08-abetfield/scaffolding/services/sync-gateway
+          - name: partner-admin-svc
+            dir: niche-plans/06-abetpartner/scaffolding/services/partner-admin-svc
+          - name: audit-evidence-svc
+            dir: niche-plans/02-abettrust/scaffolding/services/audit-evidence-svc
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: dev
+          POSTGRES_DB: appdb
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Build shared core lib
+        run: cd niche-plans/00-platform-baseline/packages/core && npm install && npm run build
+      - name: Run ${{ matrix.name }} tests (incl. Postgres integration)
+        working-directory: ${{ matrix.dir }}
+        env:
+          DATABASE_URL: postgres://postgres:dev@localhost:5432/appdb
+        run: npm install && npm run build && npm test
