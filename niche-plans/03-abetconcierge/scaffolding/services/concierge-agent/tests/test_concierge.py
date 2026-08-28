@@ -74,3 +74,22 @@ def test_api_inbound_resolves_party_and_intent():
     body = resp.json()
     assert body["intent"] == "price_quote"
     assert body["partyId"]
+
+
+def test_inbound_emits_ai_actions_meter():
+    from abet_meter import InMemoryMeterSink, MeterEmitter
+
+    sink = InMemoryMeterSink()
+    app.state.meter = MeterEmitter(service="concierge-agent", sink=sink)
+    try:
+        resp = client.post(
+            "/v1/inbound",
+            json={"tenantId": "tenant-c", "channel": "whatsapp", "handle": "9800012345", "body": "how much"},
+        )
+        assert resp.status_code == 200
+        assert len(sink.events) == 1
+        assert sink.events[0]["meter"] == "ai_actions"
+        assert sink.events[0]["tenantId"] == "tenant-c"
+        assert sink.events[0]["service"] == "concierge-agent"
+    finally:
+        app.state.meter = MeterEmitter(service="concierge-agent")

@@ -52,3 +52,55 @@ def test_api_evaluate_deny():
     )
     assert resp.status_code == 200
     assert resp.json()["decision"] == "deny"
+
+
+def test_evaluate_emits_ai_actions_meter():
+    from abet_meter import InMemoryMeterSink, MeterEmitter
+
+    sink = InMemoryMeterSink()
+    app.state.meter = MeterEmitter(service="policy-engine", sink=sink)
+    try:
+        resp = client.post(
+            "/v1/policy/evaluate",
+            json={"actor": {"sub": "u1", "roles": ["sales"]}, "action": "read", "resource": "party"},
+            headers={"X-Tenant-Id": "tenant-p"},
+        )
+        assert resp.status_code == 200
+        assert len(sink.events) == 1
+        assert sink.events[0]["meter"] == "ai_actions"
+        assert sink.events[0]["tenantId"] == "tenant-p"
+    finally:
+        app.state.meter = MeterEmitter(service="policy-engine")
+
+
+def test_grounding_emits_ai_actions_meter():
+    from abet_meter import InMemoryMeterSink, MeterEmitter
+
+    sink = InMemoryMeterSink()
+    app.state.meter = MeterEmitter(service="policy-engine", sink=sink)
+    try:
+        resp = client.post(
+            "/v1/grounding/check",
+            json={"messageId": "m1", "text": "answer [doc-1]", "approvedSources": ["doc-1"]},
+            headers={"X-Tenant-Id": "tenant-p"},
+        )
+        assert resp.status_code == 200
+        assert sink.events[0]["eventId"] == "m1"
+    finally:
+        app.state.meter = MeterEmitter(service="policy-engine")
+
+
+def test_evaluate_without_tenant_does_not_bill():
+    from abet_meter import InMemoryMeterSink, MeterEmitter
+
+    sink = InMemoryMeterSink()
+    app.state.meter = MeterEmitter(service="policy-engine", sink=sink)
+    try:
+        resp = client.post(
+            "/v1/policy/evaluate",
+            json={"actor": {"sub": "u1", "roles": ["sales"]}, "action": "read", "resource": "party"},
+        )
+        assert resp.status_code == 200
+        assert sink.events == []
+    finally:
+        app.state.meter = MeterEmitter(service="policy-engine")

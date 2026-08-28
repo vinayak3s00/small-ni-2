@@ -6,12 +6,15 @@
 """FastAPI app driving the AbetVoice turn state machine per call session."""
 from __future__ import annotations
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel
 
+from abet_meter import MeterEmitter
 from turn import InvalidTransition, TurnMachine, TurnState
 
 app = FastAPI(title="AbetVoice Orchestrator", version="1.0.0")
+# Billable-usage emitter. Tests replace `app.state.meter` with an in-memory sink.
+app.state.meter = MeterEmitter(service="voice-orchestrator")
 
 # call_id -> live turn machine (Redis-backed + sticky-routed in production).
 _SESSIONS: dict[str, TurnMachine] = {}
@@ -51,7 +54,7 @@ def start(call_id: str) -> StateResponse:
 
 
 @app.post("/v1/events", response_model=StateResponse)
-def event(req: EventRequest) -> StateResponse:
+def event(req: EventRequest, x_tenant_id: str | None = Header(default=None)) -> StateResponse:
     machine = _SESSIONS.get(req.callId)
     if machine is None:
         raise HTTPException(status_code=404, detail="unknown call session")
@@ -62,6 +65,9 @@ def event(req: EventRequest) -> StateResponse:
         handler(machine)
     except InvalidTransition as e:
         raise HTTPException(status_code=409, detail=str(e))
+    # Billable usage: each agent reply produced (reply_ready) is one AI turn.
+    if req.event == "reply_ready":
+        app.state.meter.count("ai_actions", x_tenant_id, source="voice_turn")
     if machine.state == TurnState.ENDED:
         _SESSIONS.pop(req.callId, None)
     return _snapshot(req.callId, machine)
