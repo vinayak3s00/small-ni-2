@@ -6,13 +6,25 @@
  */
 
 import Fastify, { FastifyInstance } from 'fastify';
-import { parseBearer, verifyToken, runWithPrincipal } from '@abetworks/core';
+import {
+  parseBearer,
+  verifyToken,
+  runWithPrincipal,
+  MeterEmitter,
+  type MeterSink,
+} from '@abetworks/core';
 import { SyncEngine, type Mutation, type SyncStore } from './sync';
 
 const JWT_SECRET = process.env.JWT_SECRET ?? 'dev-secret-change-me';
 
-export function buildServer(store: SyncStore = new SyncEngine()): FastifyInstance {
+export interface ServerOptions {
+  /** Optional meter sink (tests inject in-memory; prod uses default log/Kafka sink). */
+  meterSink?: MeterSink;
+}
+
+export function buildServer(store: SyncStore = new SyncEngine(), opts: ServerOptions = {}): FastifyInstance {
   const app = Fastify({ logger: false });
+  const meter = new MeterEmitter({ service: 'sync-gateway', sink: opts.meterSink });
 
   app.addHook('onRequest', async (req: any, reply) => {
     if (req.url === '/healthz') return;
@@ -35,6 +47,11 @@ export function buildServer(store: SyncStore = new SyncEngine()): FastifyInstanc
       return reply.code(400).send({ error: 'mutations[] required' });
     }
     const result = await withCtx(req, () => store.sync(mutations));
+    // Billable usage: one "records" unit per newly-applied mutation (duplicates
+    // don't re-bill). eventId = clientMutationId keeps it idempotent downstream.
+    await withCtx(req, async () => {
+      for (const cmid of result.applied) meter.count('records', { eventId: cmid, source: 'sync' });
+    });
     return reply.code(200).send(result);
   });
 

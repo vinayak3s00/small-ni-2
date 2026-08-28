@@ -7,6 +7,7 @@
 
 import { describe, it, expect, beforeAll } from 'vitest';
 import jwt from 'jsonwebtoken';
+import { InMemoryMeterSink } from '@abetworks/core';
 import { buildServer } from './server';
 
 const SECRET = 'dev-secret-change-me';
@@ -88,5 +89,26 @@ describe('core-crm API', () => {
     const second = await app.inject({ method: 'POST', url: '/v1/bookings', headers: auth, payload });
     expect(second.statusCode).toBe(409);
     expect(second.json().error).toMatchObject({ code: 'conflict' });
+  });
+
+  it('emits a billable "records" meter event on record creation', async () => {
+    const meterSink = new InMemoryMeterSink();
+    const metered = buildServer({ meterSink: meterSink.sink });
+    const auth = { authorization: `Bearer ${tokenFor('tenant-bill')}` };
+    const created = await metered.inject({
+      method: 'POST',
+      url: '/v1/records',
+      headers: auth,
+      payload: { vertical: 'realty', source: 'portal', party: { name: 'Asha' } },
+    });
+    expect(created.statusCode).toBe(201);
+    expect(meterSink.events).toHaveLength(1);
+    expect(meterSink.events[0]).toMatchObject({
+      tenantId: 'tenant-bill',
+      meter: 'records',
+      quantity: 1,
+      service: 'core-crm',
+      eventId: created.json().id, // idempotent: tied to the record id
+    });
   });
 });

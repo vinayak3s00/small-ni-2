@@ -12,3 +12,4 @@ export * from './auth';
 export * from './audit';
 export * from './logger';
 export * from './http';
+export * from './metering';

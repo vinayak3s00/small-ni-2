@@ -17,7 +17,9 @@ import {
   toErrorResponse,
   requestIdFrom,
   readiness,
+  MeterEmitter,
   type ReadinessCheck,
+  type MeterSink,
 } from '@abetworks/core';
 import { InMemoryRepo, SlotTakenError, type CrmRepository, type Vertical } from './repository';
 
@@ -27,6 +29,8 @@ export interface ServerDeps {
   repo?: CrmRepository;
   /** Readiness probe for the datastore (e.g. `SELECT 1`); ok=true when healthy. */
   dbPing?: ReadinessCheck;
+  /** Optional meter sink (tests inject an in-memory sink; prod uses the default log/Kafka sink). */
+  meterSink?: MeterSink;
 }
 
 export function buildServer(deps: ServerDeps = {}): FastifyInstance {
@@ -34,6 +38,7 @@ export function buildServer(deps: ServerDeps = {}): FastifyInstance {
   const app = Fastify({ logger: false });
   const audit = new AuditLogger(new InMemoryAuditSink());
   const log = new Logger({ service: 'core-crm' });
+  const meter = new MeterEmitter({ service: 'core-crm', sink: deps.meterSink });
 
   // Correlate every request: bind/propagate a request id and a child logger.
   app.addHook('onRequest', async (req: any, reply) => {
@@ -92,6 +97,8 @@ export function buildServer(deps: ServerDeps = {}): FastifyInstance {
         },
       });
       await audit.record('write', 'record', created.id);
+      // Billable usage: one record created. eventId = record id => idempotent.
+      meter.count('records', { eventId: created.id, source: 'record' });
       req.log.info('record created', { recordId: created.id, vertical: created.vertical });
       return created;
     });
