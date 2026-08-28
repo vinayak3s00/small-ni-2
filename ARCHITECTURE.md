@@ -127,7 +127,7 @@ uv venv && uv pip install -e ".[dev]" && uv run uvicorn app:app --app-dir src
 ## 7. Test it
 
 ```bash
-bash scripts/run_all_tests.sh          # every service + platform package (25 suites)
+bash scripts/run_all_tests.sh          # core lib + every service + platform package (26 suites)
 bash scripts/check_license_headers.sh  # proprietary header enforcement
 node platform/api-tools/dist/check.js  # OpenAPI valid + covers all gateway routes
 ```

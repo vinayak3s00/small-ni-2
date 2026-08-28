@@ -72,32 +72,34 @@ Beyond the design docs, each product ships **runnable, tested service code** und
 
 | Product | Service | Stack | What it demonstrates | Tests |
 |---------|---------|-------|----------------------|-------|
-| baseline | `@abetworks/core` | TS lib | tenant context (AsyncLocalStorage), RLS scope helper, JWT auth, append-only audit | 5 |
-| AbetVerticals | `core-crm` | TS/Fastify | auth + tenant isolation + no-double-book optimistic lock | 3 |
-| AbetVerticals | `scoring-svc` | Py/FastAPI | explainable scoring with ordered reason codes, per-vertical packs | 5 |
-| AbetVerticals | `agent-orchestrator` | Py/FastAPI | guardrail-first + RAG cited answers + escalation-with-summary | 6 |
-| AbetVerticals | `attribution-svc` | TS/Fastify | append-only attribution ledger, first/last/linear models | 6 |
-| AbetTrust | `policy-engine` | Py/FastAPI | PDP: export role checks, field masking, citation-grounding gate | 7 |
-| AbetTrust | `audit-evidence-svc` | TS/Fastify | tamper-evident hash-chained audit + evidence packs | 4 |
-| AbetTrust | `kyc-svc` | TS/Fastify | KYC/suitability state machine + append-only disclosure trail | 6 |
-| AbetConcierge | `quoting-svc` | TS/Fastify | GST-aware multi-currency quotes (minor units) + WhatsApp opt-in guard | 8 |
-| AbetConcierge | `concierge-agent` | Py/FastAPI | cross-channel identity unification + commerce intent routing | 8 |
+| baseline | `@abetworks/core` | TS lib | tenant context, RLS scope helper, JWT auth, audit, structured logging, error shaping, usage metering | 23 |
+| AbetVerticals | `core-crm` | TS/Fastify | auth + tenant isolation + no-double-book lock; observability + records metering | 8 |
+| AbetVerticals | `scoring-svc` | Py/FastAPI | explainable scoring with ordered reason codes; ai_actions metering | 13 |
+| AbetVerticals | `agent-orchestrator` | Py/FastAPI | guardrail-first + RAG cited answers + escalation; ai_actions metering | 13 |
+| AbetVerticals | `attribution-svc` | TS/Fastify | append-only attribution ledger (first/last/linear); records metering | 8 |
+| AbetTrust | `policy-engine` | Py/FastAPI | PDP: export role checks, field masking, grounding gate; ai_actions metering | 15 |
+| AbetTrust | `audit-evidence-svc` | TS/Fastify | tamper-evident hash-chained audit + evidence packs; observability + metering | 12 |
+| AbetTrust | `kyc-svc` | TS/Fastify | KYC/suitability state machine + disclosure trail; observability + ai_actions metering | 14 |
+| AbetConcierge | `quoting-svc` | TS/Fastify | GST-aware multi-currency quotes + WhatsApp opt-in guard | 8 |
+| AbetConcierge | `concierge-agent` | Py/FastAPI | cross-channel identity unification + intent routing; ai_actions metering | 14 |
 | AbetConcierge | `channel-gw` | TS/Fastify | WhatsApp verify handshake + HMAC signature + inbound normalize | 7 |
 | AbetVoice | `telephony-svc` | TS/Fastify | DND gate, ungrounded-call escalation, PII-redacted transcripts | 5 |
-| AbetVoice | `voice-orchestrator` | Py/FastAPI | turn-taking state machine with barge-in handling | 8 |
+| AbetVoice | `voice-orchestrator` | Py/FastAPI | turn-taking state machine with barge-in; ai_actions metering | 14 |
 | AbetMigrate | `mapping-engine` | Py/FastAPI | field mapping, idempotent cutover, reversible rollback journal | 6 |
 | AbetMigrate | `reconciliation-svc` | Py/FastAPI | dual-run compare + hard/soft metrics + cutover gate | 5 |
 | AbetMigrate | `source-connectors` | Py/FastAPI | CSV/HubSpot extractors → staging records with provenance | 7 |
-| AbetPartner | `partner-admin-svc` | TS/Fastify | hierarchical tenancy, scoped grants, billing rollup + margin | 5 |
+| AbetPartner | `partner-admin-svc` | TS/Fastify | hierarchical tenancy, scoped grants, billing rollup; records metering | 7 |
 | AbetPartner | `reporting-svc` | TS/Fastify | grant-gated, white-labelled report generation | 3 |
 | AbetRetain | `retention-svc` | Py/FastAPI | idempotent order ingest, explainable LTV/churn, frequency caps | 6 |
 | AbetRetain | `journey-engine` | Py/FastAPI | event-driven post-purchase cadence, idempotent + capped | 6 |
 | AbetRetain | `support-agent` | Py/FastAPI | WISMO/returns cited resolution + confidence-gated escalation | 8 |
-| AbetField | `sync-gateway` | TS/Fastify | offline idempotent replay + per-entity conflict resolution | 4 |
+| AbetField | `sync-gateway` | TS/Fastify | offline idempotent replay + per-entity conflict resolution; records metering | 6 |
 | AbetField | `route-svc` | TS/Fastify | beat plans + haversine geo-verified check-in | 6 |
-| AbetField | `order-svc` | TS/Fastify | GST-aware field orders + all-or-nothing stock allocation | 5 |
+| AbetField | `order-svc` | TS/Fastify | GST-aware field orders + all-or-nothing stock allocation; records metering | 7 |
+| Platform | `@abetworks/billing` | TS lib | plans, idempotent usage aggregation, invoice + SLA-credit calculation | 12 |
+| Platform | `@abetworks/api-tools` | TS lib | OpenAPI validation + gateway route-drift guard | 9 |
 
-**Total: 24 services, 141 tests, all green.** All source files carry the Abetworks proprietary header (see `LICENSE`).
+**Total: 26 test suites, 242 tests, all green.** All source files carry the Abetworks proprietary header (see `LICENSE`).
 
 ### Production-grade, sales-ready services
 

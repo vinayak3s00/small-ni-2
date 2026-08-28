@@ -9,10 +9,17 @@ pass=0
 fail=0
 failed_list=()
 
-# Build the shared core lib first (TS services depend on its dist/).
-echo "== building @abetworks/core =="
-( cd niche-plans/00-platform-baseline/packages/core && npm install --no-audit --no-fund >/dev/null 2>&1 && npm run build >/dev/null 2>&1 ) \
-  && echo "core built" || { echo "core build FAILED"; exit 1; }
+# Build AND test the shared core lib first (every TS service depends on it, so
+# its own suite must run — not just build).
+echo "== @abetworks/core (build + test) =="
+if ( cd niche-plans/00-platform-baseline/packages/core \
+      && npm install --no-audit --no-fund >/dev/null 2>&1 \
+      && npm run build >/dev/null 2>&1 \
+      && npm test >/dev/null 2>&1 ); then
+  echo "PASS  00-platform-baseline/packages/core"; pass=$((pass + 1))
+else
+  echo "FAIL  00-platform-baseline/packages/core"; fail=$((fail + 1)); failed_list+=("@abetworks/core")
+fi
 
 # TypeScript services: any dir with a package.json under scaffolding/services + the core lib.
 echo "== TypeScript services =="
