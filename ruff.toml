@@ -1,0 +1,23 @@
+# Copyright (c) 2026 Abetworks (abetworks.in). All rights reserved.
+# Abetworks Proprietary and Confidential.
+#
+# Repo-wide Python lint config. Enforced in CI (python-lint job) so lint issues
+# cannot re-accumulate across the FastAPI services.
+target-version = "py311"
+line-length = 100
+
+extend-exclude = [
+  "**/.venv",
+  "**/node_modules",
+]
+
+[lint]
+# Correctness + hygiene rules that are meaningful and currently clean:
+# pyflakes(F), isort(I), pyupgrade(UP), flake8-bandit security(S),
+# ruff-specific(RUF). Line-length/formatting (E501) is intentionally left to
+# reviewers rather than blocking CI on stylistic wraps.
+select = ["F", "I", "UP", "S", "RUF"]
+
+[lint.per-file-ignores]
+# Tests may use assert (S101) and bind unused vars for readability (F841).
+"**/tests/**" = ["S101", "F841"]

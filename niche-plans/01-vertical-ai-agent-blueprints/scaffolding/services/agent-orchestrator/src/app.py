@@ -6,11 +6,10 @@
 """FastAPI app for the AbetVerticals agent orchestrator."""
 from __future__ import annotations
 
-from fastapi import FastAPI, Header
-from pydantic import BaseModel
-
 from abet_meter import MeterEmitter
+from fastapi import FastAPI, Header
 from orchestrator import Source, answer
+from pydantic import BaseModel
 
 app = FastAPI(title="AbetVerticals Agent Orchestrator", version="1.0.0")
 

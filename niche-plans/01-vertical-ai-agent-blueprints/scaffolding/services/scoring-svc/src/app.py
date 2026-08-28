@@ -6,10 +6,9 @@
 """FastAPI app exposing explainable scoring for AbetVerticals."""
 from __future__ import annotations
 
+from abet_meter import MeterEmitter
 from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel, Field
-
-from abet_meter import MeterEmitter
 from scoring import ScoringPack, score_record
 
 app = FastAPI(title="AbetVerticals Scoring", version="1.0.0")

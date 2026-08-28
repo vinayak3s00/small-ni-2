@@ -6,10 +6,9 @@
 """FastAPI app exposing AbetMigrate source-connector extraction."""
 from __future__ import annotations
 
+from connectors import extract
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-
-from connectors import extract
 
 app = FastAPI(title="AbetMigrate Source Connectors", version="1.0.0")
 

@@ -12,7 +12,7 @@ same engine serves realty / care / admit with different signal weights.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 
 @dataclass(frozen=True)
@@ -24,7 +24,7 @@ class ScoringPack:
     labels: dict[str, str]
 
     @classmethod
-    def from_manifest(cls, manifest: dict) -> "ScoringPack":
+    def from_manifest(cls, manifest: dict) -> ScoringPack:
         scoring = manifest.get("scoring", {})
         signals = scoring.get("signals", {})
         labels = scoring.get("labels", {})
@@ -61,5 +61,5 @@ def score_record(pack: ScoringPack, signals: dict[str, bool]) -> ScoreResult:
     return ScoreResult(
         score=total,
         reasons=reasons,
-        refreshed_at=datetime.now(timezone.utc).isoformat(),
+        refreshed_at=datetime.now(UTC).isoformat(),
     )

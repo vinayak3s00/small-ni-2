@@ -8,7 +8,6 @@ from __future__ import annotations
 
 from fastapi import FastAPI
 from pydantic import BaseModel
-
 from reconcile import CutoverBlocked, assert_cutover_allowed, reconcile
 
 app = FastAPI(title="AbetMigrate Reconciliation", version="1.0.0")

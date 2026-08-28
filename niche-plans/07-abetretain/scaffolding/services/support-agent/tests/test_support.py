@@ -3,10 +3,9 @@
 # or use of this file, via any medium, is strictly prohibited.
 # See the LICENSE file at the repository root. Contact: legal@abetworks.in
 
-from fastapi.testclient import TestClient
-
-from support import Order, Policy, resolve
 from app import app
+from fastapi.testclient import TestClient
+from support import Order, Policy, resolve
 
 client = TestClient(app)
 

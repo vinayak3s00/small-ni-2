@@ -3,11 +3,10 @@
 # or use of this file, via any medium, is strictly prohibited.
 # See the LICENSE file at the repository root. Contact: legal@abetworks.in
 
-from fastapi.testclient import TestClient
-
-from identity import IdentityGraph, normalize_handle
-from commerce import classify, handle
 from app import app
+from commerce import classify, handle
+from fastapi.testclient import TestClient
+from identity import IdentityGraph, normalize_handle
 
 client = TestClient(app)
 
@@ -42,7 +41,7 @@ def test_linking_channels_unifies_into_one_party():
     g = IdentityGraph()
     wa = g.resolve("t1", "whatsapp", "9800012345")
     # Same person emails in separately -> gets a distinct party first.
-    em = g.resolve("t1", "email", "asha@example.com")
+    g.resolve("t1", "email", "asha@example.com")
     assert g.party_count() == 2
     # Link the email identity to the WhatsApp party -> merge into one.
     g.link("t1", wa, "email", "asha@example.com")

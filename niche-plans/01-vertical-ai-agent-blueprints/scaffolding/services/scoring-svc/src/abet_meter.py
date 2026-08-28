@@ -18,9 +18,10 @@ from __future__ import annotations
 import json
 import sys
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime, timezone
-from typing import Callable, Literal
+from datetime import UTC, datetime
+from typing import Literal
 
 MeterKey = Literal["records", "messages", "voice_minutes", "ai_actions"]
 
@@ -64,14 +65,14 @@ class MeterEmitter:
                 "tenantId": tenant_id,
                 "meter": meter,
                 "quantity": quantity,
-                "at": datetime.now(timezone.utc).isoformat(),
+                "at": datetime.now(UTC).isoformat(),
                 "service": self.service,
             }
             if source:
                 event["source"] = source
             self.sink(event)
-        except Exception:  # noqa: BLE001 - metering must never break a request
-            pass
+        except Exception:  # noqa: S110 - metering must never break a request
+            pass  # intentional: usage metering is best-effort
 
     def count(
         self,
