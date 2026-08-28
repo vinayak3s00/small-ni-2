@@ -27,6 +27,11 @@ export function getPrincipal(): Principal {
   return p;
 }
 
+/** Non-throwing variant: returns the principal if in scope, else undefined. */
+export function tryGetPrincipal(): Principal | undefined {
+  return storage.getStore();
+}
+
 export function getTenantId(): string {
   return getPrincipal().tenantId;
 }

@@ -10,3 +10,5 @@ export * from './tenant-context';
 export * from './rls';
 export * from './auth';
 export * from './audit';
+export * from './logger';
+export * from './http';
