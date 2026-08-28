@@ -6,7 +6,17 @@
  */
 
 import Fastify, { FastifyInstance } from 'fastify';
-import { parseBearer, verifyToken, runWithPrincipal } from '@abetworks/core';
+import {
+  parseBearer,
+  verifyToken,
+  runWithPrincipal,
+  Logger,
+  AppError,
+  toErrorResponse,
+  requestIdFrom,
+  readiness,
+  type ReadinessCheck,
+} from '@abetworks/core';
 import {
   InMemoryKycStore,
   InvalidKycTransition,
@@ -17,16 +27,42 @@ import {
 
 const JWT_SECRET = process.env.JWT_SECRET ?? 'dev-secret-change-me';
 
-export function buildServer(store: KycStore = new InMemoryKycStore()): FastifyInstance {
-  const app = Fastify({ logger: false });
+export interface ServerDeps {
+  store?: KycStore;
+  /** Readiness probe for the datastore (e.g. `SELECT 1`); ok=true when healthy. */
+  dbPing?: ReadinessCheck;
+}
 
+export function buildServer(deps: ServerDeps = {}): FastifyInstance {
+  const store = deps.store ?? new InMemoryKycStore();
+  const app = Fastify({ logger: false });
+  const log = new Logger({ service: 'kyc-svc' });
+
+  // Correlate every request: bind/propagate a request id + child logger.
   app.addHook('onRequest', async (req: any, reply) => {
-    if (req.url === '/healthz') return;
+    const requestId = requestIdFrom(req.headers['x-request-id']);
+    req.requestId = requestId;
+    req.log = log.child({ requestId });
+    reply.header('x-request-id', requestId);
+
+    if (req.url === '/healthz' || req.url === '/readyz') return;
+
     try {
       req.principal = verifyToken(parseBearer(req.headers.authorization), JWT_SECRET);
     } catch (err) {
-      reply.code(401).send({ error: 'unauthorized', detail: (err as Error).message });
+      const { statusCode, body } = toErrorResponse(AppError.unauthorized(), requestId);
+      req.log.warn('auth failed', { detail: (err as Error).message });
+      reply.code(statusCode).send(body);
     }
+  });
+
+  app.addHook('onResponse', async (req: any, reply) => {
+    req.log?.info('request', {
+      method: req.method,
+      url: req.url,
+      status: reply.statusCode,
+      ms: Math.round(reply.elapsedTime ?? 0),
+    });
   });
 
   const withCtx = <T>(req: any, fn: () => Promise<T>): Promise<T> =>
@@ -34,70 +70,89 @@ export function buildServer(store: KycStore = new InMemoryKycStore()): FastifyIn
 
   app.get('/healthz', async () => ({ status: 'ok' }));
 
+  app.get('/readyz', async (_req, reply) => {
+    const report = await readiness({ db: deps.dbPing ?? (() => true) });
+    return reply.code(report.status === 'ok' ? 200 : 503).send(report);
+  });
+
   app.post('/v1/kyc', async (req: any, reply) => {
     const { partyId, documents } = req.body ?? {};
-    if (!partyId) return reply.code(400).send({ error: 'partyId required' });
+    if (!partyId) throw AppError.badRequest('partyId required');
     const rec = await withCtx(req, () => store.create(partyId, documents ?? []));
+    req.log.info('kyc created', { kycId: rec.id, partyId });
     return reply.code(201).send(rec);
   });
 
-  app.post('/v1/kyc/:id/transition', async (req: any, reply) => {
+  app.post('/v1/kyc/:id/transition', async (req: any) => {
     const to = req.body?.to as KycStatus;
-    try {
-      return await withCtx(req, () => store.transition(req.params.id, to));
-    } catch (err) {
-      if (err instanceof InvalidKycTransition) return reply.code(409).send({ error: err.message });
-      if (err instanceof KycNotFound) return reply.code(404).send({ error: err.message });
-      throw err;
-    }
+    const rec = await withCtx(req, () => store.transition(req.params.id, to));
+    req.log.info('kyc transition', { kycId: req.params.id, to });
+    return rec;
   });
 
-  app.post('/v1/kyc/:id/disclosures', async (req: any, reply) => {
+  app.post('/v1/kyc/:id/disclosures', async (req: any) => {
     const { disclosure } = req.body ?? {};
-    if (!disclosure) return reply.code(400).send({ error: 'disclosure required' });
-    try {
-      return await withCtx(req, () => store.addDisclosure(req.params.id, disclosure));
-    } catch (err) {
-      if (err instanceof KycNotFound) return reply.code(404).send({ error: err.message });
-      throw err;
-    }
+    if (!disclosure) throw AppError.badRequest('disclosure required');
+    const rec = await withCtx(req, () => store.addDisclosure(req.params.id, disclosure));
+    req.log.info('kyc disclosure added', { kycId: req.params.id });
+    return rec;
   });
 
   app.get('/v1/kyc/:id/suitability', async (req: any) =>
     withCtx(req, async () => ({ complete: await store.isSuitabilityComplete(req.params.id) })),
   );
 
-  app.get('/v1/kyc/:id', async (req: any, reply) => {
+  app.get('/v1/kyc/:id', async (req: any) => {
     const rec = await withCtx(req, () => store.get(req.params.id));
-    return rec ? rec : reply.code(404).send({ error: 'not found' });
+    if (!rec) throw AppError.notFound();
+    return rec;
+  });
+
+  // Central error handler: map domain errors to consistent AppError shapes.
+  app.setErrorHandler((err, req: any, reply) => {
+    let appErr: unknown = err;
+    if (err instanceof InvalidKycTransition) appErr = AppError.conflict(err.message);
+    else if (err instanceof KycNotFound) appErr = AppError.notFound(err.message);
+    const { statusCode, body } = toErrorResponse(appErr, req.requestId);
+    if (statusCode >= 500) req.log?.error('unhandled error', { detail: (err as Error).message });
+    reply.code(statusCode).send(body);
   });
 
   return app;
 }
 
 /** Postgres when DATABASE_URL is set (migrates on boot); in-memory otherwise. */
-export async function resolveStore(): Promise<KycStore> {
-  if (!process.env.DATABASE_URL) return new InMemoryKycStore();
+export async function resolveDeps(): Promise<ServerDeps> {
+  if (!process.env.DATABASE_URL) return { store: new InMemoryKycStore() };
   const { createPool, migrate } = await import('./db');
   const { PgKycStore } = await import('./pg-kyc');
   const pool = createPool();
   await migrate(pool);
-  return new PgKycStore(pool);
+  const dbPing: ReadinessCheck = async () => {
+    try {
+      await pool.query('SELECT 1');
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  return { store: new PgKycStore(pool), dbPing };
 }
 
 if (require.main === module) {
-  resolveStore()
-    .then((store) => {
-      const app = buildServer(store);
+  resolveDeps()
+    .then((deps) => {
+      const app = buildServer(deps);
       const port = Number(process.env.PORT ?? 3007);
       return app.listen({ port, host: '0.0.0.0' }).then(() => {
-        // eslint-disable-next-line no-console
-        console.log(`kyc-svc listening on :${port} (${process.env.DATABASE_URL ? 'postgres' : 'in-memory'})`);
+        new Logger({ service: 'kyc-svc' }).info('listening', {
+          port,
+          store: process.env.DATABASE_URL ? 'postgres' : 'in-memory',
+        });
       });
     })
     .catch((err) => {
-      // eslint-disable-next-line no-console
-      console.error('failed to start:', err.message);
+      new Logger({ service: 'kyc-svc' }).error('failed to start', { detail: err.message });
       process.exit(1);
     });
 }
