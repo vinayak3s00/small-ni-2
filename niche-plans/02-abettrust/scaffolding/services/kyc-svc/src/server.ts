@@ -15,7 +15,9 @@ import {
   toErrorResponse,
   requestIdFrom,
   readiness,
+  MeterEmitter,
   type ReadinessCheck,
+  type MeterSink,
 } from '@abetworks/core';
 import {
   InMemoryKycStore,
@@ -31,12 +33,15 @@ export interface ServerDeps {
   store?: KycStore;
   /** Readiness probe for the datastore (e.g. `SELECT 1`); ok=true when healthy. */
   dbPing?: ReadinessCheck;
+  /** Optional meter sink (tests inject in-memory; prod uses default log/Kafka sink). */
+  meterSink?: MeterSink;
 }
 
 export function buildServer(deps: ServerDeps = {}): FastifyInstance {
   const store = deps.store ?? new InMemoryKycStore();
   const app = Fastify({ logger: false });
   const log = new Logger({ service: 'kyc-svc' });
+  const meter = new MeterEmitter({ service: 'kyc-svc', sink: deps.meterSink });
 
   // Correlate every request: bind/propagate a request id + child logger.
   app.addHook('onRequest', async (req: any, reply) => {
@@ -78,7 +83,12 @@ export function buildServer(deps: ServerDeps = {}): FastifyInstance {
   app.post('/v1/kyc', async (req: any, reply) => {
     const { partyId, documents } = req.body ?? {};
     if (!partyId) throw AppError.badRequest('partyId required');
-    const rec = await withCtx(req, () => store.create(partyId, documents ?? []));
+    const rec = await withCtx(req, async () => {
+      const created = await store.create(partyId, documents ?? []);
+      // Billable usage: a KYC workflow is an AI/compliance action. eventId = kyc id.
+      meter.count('ai_actions', { eventId: created.id, source: 'kyc' });
+      return created;
+    });
     req.log.info('kyc created', { kycId: rec.id, partyId });
     return reply.code(201).send(rec);
   });

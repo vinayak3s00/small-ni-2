@@ -17,8 +17,10 @@ import {
   toErrorResponse,
   requestIdFrom,
   readiness,
+  MeterEmitter,
   type AuditEvent,
   type ReadinessCheck,
+  type MeterSink,
 } from '@abetworks/core';
 import { AuditChain, type AuditStore } from './evidence';
 
@@ -28,12 +30,15 @@ export interface ServerDeps {
   store?: AuditStore;
   /** Readiness probe for the datastore (e.g. `SELECT 1`); ok=true when healthy. */
   dbPing?: ReadinessCheck;
+  /** Optional meter sink (tests inject in-memory; prod uses default log/Kafka sink). */
+  meterSink?: MeterSink;
 }
 
 export function buildServer(deps: ServerDeps = {}): FastifyInstance {
   const store = deps.store ?? new AuditChain();
   const app = Fastify({ logger: false });
   const log = new Logger({ service: 'audit-evidence-svc' });
+  const meter = new MeterEmitter({ service: 'audit-evidence-svc', sink: deps.meterSink });
 
   app.addHook('onRequest', async (req: any, reply) => {
     const requestId = requestIdFrom(req.headers['x-request-id']);
@@ -78,7 +83,7 @@ export function buildServer(deps: ServerDeps = {}): FastifyInstance {
   // Ingest an audit event (append-only, hash-chained, durable).
   app.post('/v1/audit/events', async (req: any, reply) => {
     const body = req.body ?? {};
-    const chained = await withCtx(req, () => {
+    const chained = await withCtx(req, async () => {
       const p = getPrincipal();
       const event: AuditEvent = {
         tenantId: p.tenantId,
@@ -89,7 +94,10 @@ export function buildServer(deps: ServerDeps = {}): FastifyInstance {
         fields: body.fields,
         at: new Date().toISOString(),
       };
-      return store.append(event);
+      const appended = await store.append(event);
+      // Billable usage: one "records" unit per audit event ingested.
+      meter.count('records', { source: 'audit_event' });
+      return appended;
     });
     req.log.info('audit event appended', { seq: chained.seq, action: chained.action });
     return reply.code(201).send(chained);

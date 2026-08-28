@@ -7,6 +7,7 @@
 
 import { describe, it, expect, beforeAll } from 'vitest';
 import jwt from 'jsonwebtoken';
+import { InMemoryMeterSink } from '@abetworks/core';
 import { buildServer } from './server';
 
 const SECRET = 'dev-secret-change-me';
@@ -85,5 +86,24 @@ describe('kyc-svc API (observability)', () => {
     });
     expect(res.statusCode).toBe(400);
     expect(res.json().error).toMatchObject({ code: 'bad_request' });
+  });
+
+  it('emits a billable "ai_actions" meter event on KYC creation', async () => {
+    const meterSink = new InMemoryMeterSink();
+    const metered = buildServer({ meterSink: meterSink.sink });
+    const created = await metered.inject({
+      method: 'POST',
+      url: '/v1/kyc',
+      headers: { authorization: `Bearer ${token('tenant-m')}` },
+      payload: { partyId: 'p1' },
+    });
+    expect(created.statusCode).toBe(201);
+    expect(meterSink.events).toHaveLength(1);
+    expect(meterSink.events[0]).toMatchObject({
+      tenantId: 'tenant-m',
+      meter: 'ai_actions',
+      service: 'kyc-svc',
+      eventId: created.json().id,
+    });
   });
 });

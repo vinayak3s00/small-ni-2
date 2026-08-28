@@ -6,7 +6,13 @@
  */
 
 import Fastify, { FastifyInstance } from 'fastify';
-import { parseBearer, verifyToken, runWithPrincipal } from '@abetworks/core';
+import {
+  parseBearer,
+  verifyToken,
+  runWithPrincipal,
+  MeterEmitter,
+  type MeterSink,
+} from '@abetworks/core';
 import {
   InMemoryOrderStore,
   InsufficientStockError,
@@ -16,8 +22,14 @@ import {
 
 const JWT_SECRET = process.env.JWT_SECRET ?? 'dev-secret-change-me';
 
-export function buildServer(store: OrderStore = new InMemoryOrderStore()): FastifyInstance {
+export interface ServerOptions {
+  /** Optional meter sink (tests inject in-memory; prod uses default log/Kafka sink). */
+  meterSink?: MeterSink;
+}
+
+export function buildServer(store: OrderStore = new InMemoryOrderStore(), opts: ServerOptions = {}): FastifyInstance {
   const app = Fastify({ logger: false });
+  const meter = new MeterEmitter({ service: 'order-svc', sink: opts.meterSink });
 
   app.addHook('onRequest', async (req: any, reply) => {
     if (req.url === '/healthz') return;
@@ -56,6 +68,9 @@ export function buildServer(store: OrderStore = new InMemoryOrderStore()): Fasti
     }
     try {
       const order = await withCtx(req, () => store.place(clientOrderId, outletId, currency, lines));
+      // Billable usage: one "records" unit per order. eventId = clientOrderId,
+      // which the store dedupes on, so idempotent replays don't re-bill.
+      await withCtx(req, async () => meter.count('records', { eventId: clientOrderId, source: 'order' }));
       return reply.code(201).send(order);
     } catch (err) {
       if (err instanceof InsufficientStockError) return reply.code(409).send({ error: err.message });

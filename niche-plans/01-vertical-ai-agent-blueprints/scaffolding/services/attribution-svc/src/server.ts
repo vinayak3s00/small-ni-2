@@ -6,7 +6,13 @@
  */
 
 import Fastify, { FastifyInstance } from 'fastify';
-import { parseBearer, verifyToken, runWithPrincipal } from '@abetworks/core';
+import {
+  parseBearer,
+  verifyToken,
+  runWithPrincipal,
+  MeterEmitter,
+  type MeterSink,
+} from '@abetworks/core';
 import {
   InMemoryAttributionStore,
   type AttributionModel,
@@ -15,8 +21,17 @@ import {
 
 const JWT_SECRET = process.env.JWT_SECRET ?? 'dev-secret-change-me';
 
-export function buildServer(store: AttributionStore = new InMemoryAttributionStore()): FastifyInstance {
+export interface ServerOptions {
+  /** Optional meter sink (tests inject in-memory; prod uses default log/Kafka sink). */
+  meterSink?: MeterSink;
+}
+
+export function buildServer(
+  store: AttributionStore = new InMemoryAttributionStore(),
+  opts: ServerOptions = {},
+): FastifyInstance {
   const app = Fastify({ logger: false });
+  const meter = new MeterEmitter({ service: 'attribution-svc', sink: opts.meterSink });
 
   app.addHook('onRequest', async (req: any, reply) => {
     if (req.url === '/healthz') return;
@@ -37,9 +52,13 @@ export function buildServer(store: AttributionStore = new InMemoryAttributionSto
     if (!recordId || !source) {
       return reply.code(400).send({ error: 'recordId and source are required' });
     }
-    const event = await withCtx(req, () =>
-      store.record({ recordId, source, campaign, partnerCode, occurredAt }),
-    );
+    const event = await withCtx(req, async () => {
+      const recorded = await store.record({ recordId, source, campaign, partnerCode, occurredAt });
+      // Billable usage: one "records" unit per attribution touch. eventId = the
+      // event's own id, so at-least-once delivery downstream dedupes cleanly.
+      meter.count('records', { eventId: recorded.id, source: 'attribution' });
+      return recorded;
+    });
     return reply.code(201).send(event);
   });
 
