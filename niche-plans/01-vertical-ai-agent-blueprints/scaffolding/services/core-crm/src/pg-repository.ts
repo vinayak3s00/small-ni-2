@@ -17,20 +17,27 @@ import {
 
 /** Adapt a checked-out pg client to the platform QueryRunner contract. */
 function asRunner(client: PoolClient): QueryRunner {
-  return { query: (sql, params) => client.query(sql, params as any[]) };
+  return { query: (sql, params) => client.query(sql, params as unknown[]) };
 }
 
-function mapRecord(r: any): RecordRow {
+/** A raw database row (column name -> value) before it is mapped to a domain type. */
+type Row = Record<string, unknown>;
+
+function mapRecord(r: Row): RecordRow {
   return {
-    id: r.id,
-    tenantId: r.tenant_id,
-    vertical: r.vertical,
-    stage: r.stage,
-    source: r.source,
-    party: { name: r.party_name, phones: r.party_phones ?? [], languages: r.party_langs ?? [] },
-    score: r.score ?? undefined,
-    scoreReasons: r.score_reasons ?? undefined,
-    createdAt: new Date(r.created_at).toISOString(),
+    id: r.id as string,
+    tenantId: r.tenant_id as string,
+    vertical: r.vertical as RecordRow['vertical'],
+    stage: r.stage as RecordRow['stage'],
+    source: r.source as string,
+    party: {
+      name: r.party_name as string,
+      phones: (r.party_phones as string[] | null) ?? [],
+      languages: (r.party_langs as string[] | null) ?? [],
+    },
+    score: (r.score as number | null) ?? undefined,
+    scoreReasons: (r.score_reasons as string[] | null) ?? undefined,
+    createdAt: new Date(r.created_at as string).toISOString(),
   };
 }
 
@@ -66,7 +73,7 @@ export class PgRepo implements CrmRepository {
           input.party.languages ?? [],
         ],
       );
-      return mapRecord(rows[0]);
+      return mapRecord(rows[0] as Row);
     });
   }
 
@@ -78,14 +85,14 @@ export class PgRepo implements CrmRepository {
          ORDER BY created_at DESC`,
         [filter.minScore ?? null],
       );
-      return rows.map(mapRecord);
+      return (rows as Row[]).map(mapRecord);
     });
   }
 
   async getRecord(id: string): Promise<RecordRow | undefined> {
     return this.inTenantTx(async (tx) => {
       const { rows } = await tx.query('SELECT * FROM record WHERE id = $1', [id]);
-      return rows[0] ? mapRecord(rows[0]) : undefined;
+      return rows[0] ? mapRecord(rows[0] as Row) : undefined;
     });
   }
 
@@ -96,7 +103,7 @@ export class PgRepo implements CrmRepository {
          WHERE id = $1 RETURNING *`,
         [id, score, JSON.stringify(reasons)],
       );
-      return rows[0] ? mapRecord(rows[0]) : undefined;
+      return rows[0] ? mapRecord(rows[0] as Row) : undefined;
     });
   }
 
@@ -109,20 +116,20 @@ export class PgRepo implements CrmRepository {
            RETURNING *`,
           [recordId, resourceId, slotStart],
         );
-        const b = rows[0];
+        const b = rows[0] as Row;
         return {
-          id: b.id,
-          tenantId: b.tenant_id,
-          recordId: b.record_id,
-          resourceId: b.resource_id,
-          slotStart: new Date(b.slot_start).toISOString(),
-          status: b.status,
-          version: b.version,
+          id: b.id as string,
+          tenantId: b.tenant_id as string,
+          recordId: b.record_id as string,
+          resourceId: b.resource_id as string,
+          slotStart: new Date(b.slot_start as string).toISOString(),
+          status: b.status as BookingRow['status'],
+          version: b.version as number,
         };
       });
-    } catch (err: any) {
+    } catch (err: unknown) {
       // 23505 = unique_violation => the (tenant, resource, slot) is already booked.
-      if (err?.code === '23505') throw new SlotTakenError();
+      if ((err as { code?: string }).code === '23505') throw new SlotTakenError();
       throw err;
     }
   }

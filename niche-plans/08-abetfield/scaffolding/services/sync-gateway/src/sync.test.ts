@@ -12,7 +12,12 @@ import { SyncEngine, type Mutation } from './sync';
 const principal = { sub: 'rep-1', tenantId: 't1', roles: ['field_rep'] };
 const ctx = <T>(fn: () => Promise<T>) => runWithPrincipal(principal, fn);
 
-const order = (id: string, cmid: string, updatedAt: string, extra: any = {}): Mutation => ({
+const order = (
+  id: string,
+  cmid: string,
+  updatedAt: string,
+  extra: Record<string, unknown> = {},
+): Mutation => ({
   clientMutationId: cmid,
   entity: 'field_order',
   op: 'update',

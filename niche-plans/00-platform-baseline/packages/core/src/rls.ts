@@ -11,7 +11,7 @@ import { getTenantId } from './tenant-context';
  * Minimal query-runner contract (any pg-compatible client satisfies this).
  */
 export interface QueryRunner {
-  query(sql: string, params?: unknown[]): Promise<{ rows: any[] }>;
+  query(sql: string, params?: unknown[]): Promise<{ rows: unknown[] }>;
 }
 
 /**

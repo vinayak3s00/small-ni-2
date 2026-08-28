@@ -17,18 +17,21 @@ import {
 } from './attribution';
 
 function asRunner(client: PoolClient): QueryRunner {
-  return { query: (sql, params) => client.query(sql, params as any[]) };
+  return { query: (sql, params) => client.query(sql, params as unknown[]) };
 }
 
-function mapEvent(r: any): AttributionEvent {
+/** A raw database row (column name -> value) before it is mapped to a domain type. */
+type Row = Record<string, unknown>;
+
+function mapEvent(r: Row): AttributionEvent {
   return {
-    id: r.id,
-    tenantId: r.tenant_id,
-    recordId: r.record_id,
-    source: r.source,
-    campaign: r.campaign ?? undefined,
-    partnerCode: r.partner_code ?? undefined,
-    occurredAt: new Date(r.occurred_at).toISOString(),
+    id: r.id as string,
+    tenantId: r.tenant_id as string,
+    recordId: r.record_id as string,
+    source: r.source as string,
+    campaign: (r.campaign as string | null) ?? undefined,
+    partnerCode: (r.partner_code as string | null) ?? undefined,
+    occurredAt: new Date(r.occurred_at as string).toISOString(),
   };
 }
 
@@ -56,7 +59,7 @@ export class PgAttributionStore implements AttributionStore {
          RETURNING *`,
         [input.recordId, input.source, input.campaign ?? null, input.partnerCode ?? null, input.occurredAt ?? null],
       );
-      return mapEvent(rows[0]);
+      return mapEvent(rows[0] as Row);
     });
   }
 
@@ -67,7 +70,7 @@ export class PgAttributionStore implements AttributionStore {
          ORDER BY occurred_at ASC, seq ASC`,
         [recordId],
       );
-      return rows.map(mapEvent);
+      return (rows as Row[]).map(mapEvent);
     });
   }
 

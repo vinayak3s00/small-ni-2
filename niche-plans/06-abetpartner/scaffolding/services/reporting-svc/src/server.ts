@@ -5,7 +5,7 @@
  * See the LICENSE file at the repository root. Contact: legal@abetworks.in
  */
 
-import Fastify, { FastifyInstance } from 'fastify';
+import Fastify, { FastifyInstance, FastifyRequest } from 'fastify';
 import { parseBearer, verifyToken, runWithPrincipal, Logger } from '@abetworks/core';
 import { ReportingService, AccessDeniedError, type Branding, type WorkspaceGrant } from './reporting';
 
@@ -24,7 +24,7 @@ export function buildServer(
 ): FastifyInstance {
   const app = Fastify({ logger: false });
 
-  app.addHook('onRequest', async (req: any, reply) => {
+  app.addHook('onRequest', async (req: FastifyRequest, reply) => {
     if (req.url === '/healthz') return;
     try {
       req.principal = verifyToken(parseBearer(req.headers.authorization), JWT_SECRET);
@@ -35,9 +35,11 @@ export function buildServer(
 
   app.get('/healthz', async () => ({ status: 'ok' }));
 
-  app.post('/v1/reports', async (req: any, reply) =>
-    runWithPrincipal(req.principal, () => {
-      const { workspaceId, title, metrics } = req.body ?? {};
+  app.post<{ Body: { workspaceId?: string; title?: string; metrics?: Record<string, number> } }>(
+    '/v1/reports',
+    async (req, reply) =>
+      runWithPrincipal(req.principal!, () => {
+        const { workspaceId, title, metrics } = req.body ?? {};
       if (!workspaceId || !title) {
         return reply.code(400).send({ error: 'workspaceId and title required' });
       }

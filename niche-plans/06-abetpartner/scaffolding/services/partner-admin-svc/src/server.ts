@@ -5,7 +5,7 @@
  * See the LICENSE file at the repository root. Contact: legal@abetworks.in
  */
 
-import Fastify, { FastifyInstance } from 'fastify';
+import Fastify, { FastifyInstance, FastifyRequest } from 'fastify';
 import {
   parseBearer,
   verifyToken,
@@ -29,7 +29,7 @@ export function buildServer(store: PartnerStore = new InMemoryPartnerStore(), op
   const app = Fastify({ logger: false });
   const meter = new MeterEmitter({ service: 'partner-admin-svc', sink: opts.meterSink });
 
-  app.addHook('onRequest', async (req: any, reply) => {
+  app.addHook('onRequest', async (req: FastifyRequest, reply) => {
     if (req.url === '/healthz') return;
     try {
       req.principal = verifyToken(parseBearer(req.headers.authorization), JWT_SECRET);
@@ -38,12 +38,12 @@ export function buildServer(store: PartnerStore = new InMemoryPartnerStore(), op
     }
   });
 
-  const withCtx = <T>(req: any, fn: (partnerId: string) => Promise<T>): Promise<T> =>
-    runWithPrincipal(req.principal, () => fn(getPrincipal().tenantId));
+  const withCtx = <T>(req: FastifyRequest, fn: (partnerId: string) => Promise<T>): Promise<T> =>
+    runWithPrincipal(req.principal!, () => fn(getPrincipal().tenantId));
 
   app.get('/healthz', async () => ({ status: 'ok' }));
 
-  app.post('/v1/workspaces', async (req: any, reply) => {
+  app.post<{ Body: { clientName?: string } }>('/v1/workspaces', async (req, reply) => {
     const { clientName } = req.body ?? {};
     if (!clientName) return reply.code(400).send({ error: 'clientName is required' });
     try {
@@ -60,21 +60,21 @@ export function buildServer(store: PartnerStore = new InMemoryPartnerStore(), op
     }
   });
 
-  app.get('/v1/workspaces', async (req: any) => withCtx(req, (pid) => store.listWorkspaces(pid)));
+  app.get('/v1/workspaces', async (req) => withCtx(req, (pid) => store.listWorkspaces(pid)));
 
-  app.post('/v1/workspaces/:id/grant', async (req: any, reply) => {
+  app.post<{ Params: { id: string }; Body: { scopes?: string[] } }>('/v1/workspaces/:id/grant', async (req, reply) => {
     const { scopes } = req.body ?? {};
     await withCtx(req, (pid) => store.grant(pid, req.params.id, scopes ?? []));
     return reply.code(204).send();
   });
 
-  app.post('/v1/workspaces/:id/usage', async (req: any, reply) => {
+  app.post<{ Params: { id: string }; Body: { units?: number } }>('/v1/workspaces/:id/usage', async (req, reply) => {
     const units = Number(req.body?.units ?? 0);
     await withCtx(req, (pid) => store.recordUsage(pid, req.params.id, units));
     return reply.code(204).send();
   });
 
-  app.get('/v1/billing/rollup', async (req: any) =>
+  app.get<{ Querystring: { wholesale?: number; retail?: number } }>('/v1/billing/rollup', async (req) =>
     withCtx(req, (pid) =>
       store.billingRollup(pid, Number(req.query?.wholesale ?? 5), Number(req.query?.retail ?? 12)),
     ),

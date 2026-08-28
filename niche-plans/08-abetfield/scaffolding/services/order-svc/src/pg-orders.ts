@@ -19,8 +19,11 @@ import {
 } from './orders';
 
 function asRunner(client: PoolClient): QueryRunner {
-  return { query: (sql, params) => client.query(sql, params as any[]) };
+  return { query: (sql, params) => client.query(sql, params as unknown[]) };
 }
+
+/** A raw database row (column name -> value) before it is mapped to a domain type. */
+type Row = Record<string, unknown>;
 
 /**
  * PostgreSQL-backed order store. The critical guarantee — no overselling under
@@ -65,7 +68,7 @@ export class PgOrderStore implements OrderStore {
   async stockOf(sku: string): Promise<number> {
     return this.tx(async (tx) => {
       const { rows } = await tx.query('SELECT qty FROM stock_position WHERE sku = $1', [sku]);
-      return rows[0]?.qty ?? 0;
+      return ((rows[0] as Row | undefined)?.qty as number) ?? 0;
     });
   }
 
@@ -84,14 +87,19 @@ export class PgOrderStore implements OrderStore {
         'SELECT id FROM field_order WHERE client_order_id = $1',
         [clientOrderId],
       );
-      if (prior.rows[0]) return this.hydrate(tx, prior.rows[0].id);
+      if (prior.rows[0]) return this.hydrate(tx, (prior.rows[0] as Row).id as string);
 
       // Load catalog for the requested SKUs.
       const skus = inputs.map((i) => i.sku);
       const cat = await tx.query('SELECT sku, name, price_minor, gst_rate FROM catalog_item WHERE sku = ANY($1)', [skus]);
       const catalog = new Map<string, CatalogItem>();
-      for (const r of cat.rows) {
-        catalog.set(r.sku, { sku: r.sku, name: r.name, priceMinor: Number(r.price_minor), gstRate: Number(r.gst_rate) });
+      for (const r of cat.rows as Row[]) {
+        catalog.set(r.sku as string, {
+          sku: r.sku as string,
+          name: r.name as string,
+          priceMinor: Number(r.price_minor),
+          gstRate: Number(r.gst_rate),
+        });
       }
       for (const inp of inputs) if (!catalog.has(inp.sku)) throw new UnknownSkuError(inp.sku);
 
@@ -104,7 +112,11 @@ export class PgOrderStore implements OrderStore {
         );
         if (!dec.rows[0]) {
           const cur = await tx.query('SELECT qty FROM stock_position WHERE sku = $1', [inp.sku]);
-          throw new InsufficientStockError(inp.sku, inp.qty, cur.rows[0]?.qty ?? 0);
+          throw new InsufficientStockError(
+            inp.sku,
+            inp.qty,
+            ((cur.rows[0] as Row | undefined)?.qty as number) ?? 0,
+          );
         }
       }
 
@@ -116,7 +128,7 @@ export class PgOrderStore implements OrderStore {
          RETURNING id`,
         [clientOrderId, outletId, currency, t.subtotalMinor, t.gstMinor, t.totalMinor],
       );
-      const orderId = inserted.rows[0].id;
+      const orderId = (inserted.rows[0] as Row).id as string;
       for (const l of lines) {
         await tx.query(
           `INSERT INTO field_order_line
@@ -131,24 +143,24 @@ export class PgOrderStore implements OrderStore {
 
   private async hydrate(tx: QueryRunner, orderId: string): Promise<FieldOrder> {
     const { rows } = await tx.query('SELECT * FROM field_order WHERE id = $1', [orderId]);
-    const o = rows[0];
+    const o = rows[0] as Row;
     const { rows: lines } = await tx.query(
       'SELECT * FROM field_order_line WHERE order_id = $1 ORDER BY id',
       [orderId],
     );
     return {
-      id: o.id,
-      tenantId: o.tenant_id,
-      clientOrderId: o.client_order_id,
-      outletId: o.outlet_id,
-      currency: o.currency,
+      id: o.id as string,
+      tenantId: o.tenant_id as string,
+      clientOrderId: o.client_order_id as string,
+      outletId: o.outlet_id as string,
+      currency: o.currency as string,
       subtotalMinor: Number(o.subtotal_minor),
       gstMinor: Number(o.gst_minor),
       totalMinor: Number(o.total_minor),
-      lines: lines.map((l: any) => ({
-        sku: l.sku,
-        name: l.name,
-        qty: l.qty,
+      lines: (lines as Row[]).map((l) => ({
+        sku: l.sku as string,
+        name: l.name as string,
+        qty: l.qty as number,
         unitPriceMinor: Number(l.unit_price_minor),
         lineSubtotalMinor: Number(l.line_subtotal_minor),
         gstRate: Number(l.gst_rate),

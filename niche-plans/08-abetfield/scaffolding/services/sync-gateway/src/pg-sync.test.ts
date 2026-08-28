@@ -20,7 +20,12 @@ const TB = '22222222-2222-2222-2222-222222222222';
 const asA = <T>(fn: () => Promise<T>) => runWithPrincipal({ sub: 'a', tenantId: TA, roles: ['field_rep'] }, fn);
 const asB = <T>(fn: () => Promise<T>) => runWithPrincipal({ sub: 'b', tenantId: TB, roles: ['field_rep'] }, fn);
 
-const order = (id: string, cmid: string, updatedAt: string, extra: any = {}): Mutation => ({
+const order = (
+  id: string,
+  cmid: string,
+  updatedAt: string,
+  extra: Record<string, unknown> = {},
+): Mutation => ({
   clientMutationId: cmid,
   entity: 'field_order',
   op: 'update',

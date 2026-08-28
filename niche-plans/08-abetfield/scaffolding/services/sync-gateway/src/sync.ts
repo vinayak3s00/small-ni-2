@@ -27,7 +27,7 @@ export interface Mutation {
   clientMutationId: string;
   entity: Entity;
   op: Op;
-  payload: Record<string, any>; // must contain `id` and (for LWW) `updatedAt`
+  payload: Record<string, unknown>; // must contain `id` and (for LWW) `updatedAt`
 }
 
 export interface SyncResult {
@@ -40,7 +40,7 @@ export interface SyncResult {
 export interface StoredRow {
   id: string;
   entity: Entity;
-  data: Record<string, any>;
+  data: Record<string, unknown>;
   updatedAt: string;
 }
 
@@ -108,7 +108,7 @@ export class SyncEngine implements SyncStore {
         result.duplicates.push(m.clientMutationId);
         continue;
       }
-      const now = m.payload.updatedAt ?? new Date().toISOString();
+      const now = (m.payload.updatedAt as string | undefined) ?? new Date().toISOString();
       const key = `${m.entity}:${rowKeyFor(m)}`;
       const decision = decide(m, store.get(key), now);
       if (decision.write) {

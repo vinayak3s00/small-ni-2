@@ -77,6 +77,9 @@ export interface AttributionStore {
 export class InMemoryAttributionStore implements AttributionStore {
   private readonly events: AttributionEvent[] = [];
   private seq = 0;
+  // Insertion order tracked out-of-band so it stays a stable tie-breaker for
+  // identical timestamps without polluting the public AttributionEvent shape.
+  private readonly order = new WeakMap<AttributionEvent, number>();
 
   async record(input: NewTouch): Promise<AttributionEvent> {
     const event: AttributionEvent = {
@@ -89,7 +92,7 @@ export class InMemoryAttributionStore implements AttributionStore {
       occurredAt: input.occurredAt ?? new Date().toISOString(),
     };
     // Preserve stable ordering for identical timestamps.
-    (event as any).__seq = this.seq++;
+    this.order.set(event, this.seq++);
     this.events.push(event);
     return event;
   }
@@ -100,7 +103,7 @@ export class InMemoryAttributionStore implements AttributionStore {
       .filter((e) => e.tenantId === tenantId && e.recordId === recordId)
       .sort((a, b) => {
         const t = a.occurredAt.localeCompare(b.occurredAt);
-        return t !== 0 ? t : (a as any).__seq - (b as any).__seq;
+        return t !== 0 ? t : (this.order.get(a) ?? 0) - (this.order.get(b) ?? 0);
       });
   }
 
