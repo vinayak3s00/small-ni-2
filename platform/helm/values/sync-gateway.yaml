@@ -1,0 +1,11 @@
+# Copyright (c) 2026 Abetworks (abetworks.in). All rights reserved.
+# Abetworks Proprietary and Confidential.
+name: sync-gateway
+image: registry.abetworks.in/sync-gateway:1.0.0
+port: 3008
+envFromSecrets: [sync-db, platform-jwt]
+# Field reps sync in bursts; allow wider scale-out.
+autoscaling: { enabled: true, minReplicas: 2, maxReplicas: 20, targetCPUUtilizationPercentage: 65 }
+resources:
+  requests: { cpu: 150m, memory: 192Mi }
+  limits: { cpu: 750m, memory: 640Mi }

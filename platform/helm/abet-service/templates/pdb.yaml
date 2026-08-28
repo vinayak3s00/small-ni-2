@@ -1,0 +1,17 @@
+{{/*
+Copyright (c) 2026 Abetworks (abetworks.in). All rights reserved.
+Abetworks Proprietary and Confidential.
+*/}}
+{{- if .Values.pdb.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "abet.name" . }}
+  labels:
+    {{- include "abet.labels" . | nindent 4 }}
+spec:
+  minAvailable: {{ .Values.pdb.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "abet.selectorLabels" . | nindent 6 }}
+{{- end }}

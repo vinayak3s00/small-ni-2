@@ -1,0 +1,10 @@
+# Copyright (c) 2026 Abetworks (abetworks.in). All rights reserved.
+# Abetworks Proprietary and Confidential.
+name: order-svc
+image: registry.abetworks.in/order-svc:1.0.0
+port: 3013
+envFromSecrets: [order-db, platform-jwt]
+autoscaling: { enabled: true, minReplicas: 2, maxReplicas: 15, targetCPUUtilizationPercentage: 65 }
+resources:
+  requests: { cpu: 150m, memory: 192Mi }
+  limits: { cpu: 750m, memory: 640Mi }

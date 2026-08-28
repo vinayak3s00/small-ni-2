@@ -38,6 +38,18 @@ while IFS= read -r proj; do
   fi
 done < <(git ls-files 'niche-plans/**/scaffolding/services/*/pyproject.toml')
 
+# Platform TypeScript packages (e.g. billing) — standalone, no core dependency.
+echo "== Platform packages =="
+while IFS= read -r pkg; do
+  dir="$(dirname "$pkg")"
+  name="${dir}"
+  if ( cd "$dir" && npm install --no-audit --no-fund >/dev/null 2>&1 && npm run build >/dev/null 2>&1 && npm test >/dev/null 2>&1 ); then
+    echo "PASS  $name"; pass=$((pass + 1))
+  else
+    echo "FAIL  $name"; fail=$((fail + 1)); failed_list+=("$name")
+  fi
+done < <(git ls-files 'platform/**/package.json')
+
 echo "=================================="
 echo "SUITES: pass=$pass fail=$fail"
 if [ "$fail" -ne 0 ]; then

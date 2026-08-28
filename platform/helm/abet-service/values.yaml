@@ -1,0 +1,54 @@
+# Copyright (c) 2026 Abetworks (abetworks.in). All rights reserved.
+# Abetworks Proprietary and Confidential.
+#
+# Default values for the reusable abet-service chart. Per-service values files
+# (values/<service>.yaml) override name, port, image, and scaling.
+
+# Identity
+name: abet-service
+# Full image reference (registry/repo:tag). Overridden per environment.
+image: registry.abetworks.in/abet-service:latest
+imagePullPolicy: IfNotPresent
+
+# Networking
+port: 3000
+replicas: 2
+
+# Autoscaling (HPA on CPU; tune per service).
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+
+# Resource requests/limits (right-sized per service in its values file).
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+# Health probes hit the shared endpoints every Abetworks service exposes.
+probes:
+  livenessPath: /healthz
+  readinessPath: /readyz
+  initialDelaySeconds: 5
+  periodSeconds: 10
+
+# Plain env (non-secret).
+env:
+  LOG_LEVEL: info
+
+# Names of pre-existing Kubernetes Secrets whose keys are injected as env.
+# e.g. DATABASE_URL and JWT_SECRET live in these, never in values.
+envFromSecrets: []
+
+# PodDisruptionBudget keeps capacity during voluntary disruptions (SLA).
+pdb:
+  enabled: true
+  minAvailable: 1
+
+# Data residency / scheduling hint (Mumbai-first per the platform baseline).
+nodeSelector: {}

@@ -1,0 +1,55 @@
+# Copyright (c) 2026 Abetworks (abetworks.in). All rights reserved.
+# Abetworks Proprietary and Confidential.
+#
+# Prometheus alerting rules that page when an SLO is at risk. Assumes each
+# service exports RED metrics (http_requests_total, http_request_duration_seconds)
+# labelled by service + status. Import into Prometheus/Alertmanager.
+groups:
+  - name: abetworks-slo
+    rules:
+      # Fast-burn: error budget being consumed >14.4x over 5m => page now.
+      - alert: AbetHighErrorRateFastBurn
+        expr: |
+          (
+            sum by (service) (rate(http_requests_total{status=~"5.."}[5m]))
+            /
+            sum by (service) (rate(http_requests_total[5m]))
+          ) > (14.4 * 0.001)
+        for: 5m
+        labels: { severity: page }
+        annotations:
+          summary: "{{ $labels.service }} burning error budget fast"
+          description: "5xx ratio over 5m exceeds 14.4x the 99.9% budget."
+
+      # Slow-burn: sustained elevated errors over 1h => ticket.
+      - alert: AbetHighErrorRateSlowBurn
+        expr: |
+          (
+            sum by (service) (rate(http_requests_total{status=~"5.."}[1h]))
+            /
+            sum by (service) (rate(http_requests_total[1h]))
+          ) > (3 * 0.001)
+        for: 1h
+        labels: { severity: ticket }
+        annotations:
+          summary: "{{ $labels.service }} error budget slow-burn"
+
+      # Latency SLO: read p95 above 300ms for 10m.
+      - alert: AbetLatencyP95High
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum by (service, le) (rate(http_request_duration_seconds_bucket[10m]))
+          ) > 0.3
+        for: 10m
+        labels: { severity: ticket }
+        annotations:
+          summary: "{{ $labels.service }} read p95 latency above SLO (300ms)"
+
+      # Readiness: a pod reporting not-ready (degraded dependency) for 5m.
+      - alert: AbetServiceNotReady
+        expr: max by (service) (abet_ready == 0)
+        for: 5m
+        labels: { severity: page }
+        annotations:
+          summary: "{{ $labels.service }} readiness degraded (dependency down)"
