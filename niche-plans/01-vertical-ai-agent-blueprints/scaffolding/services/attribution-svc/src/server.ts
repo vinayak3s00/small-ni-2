@@ -11,6 +11,7 @@ import {
   verifyToken,
   runWithPrincipal,
   MeterEmitter,
+  Logger,
   type MeterSink,
 } from '@abetworks/core';
 import {
@@ -91,13 +92,14 @@ if (require.main === module) {
       const app = buildServer(store);
       const port = Number(process.env.PORT ?? 3011);
       return app.listen({ port, host: '0.0.0.0' }).then(() => {
-        // eslint-disable-next-line no-console
-        console.log(`attribution-svc listening on :${port} (${process.env.DATABASE_URL ? 'postgres' : 'in-memory'})`);
+        new Logger({ service: 'attribution-svc' }).info('listening', {
+          port,
+          store: process.env.DATABASE_URL ? 'postgres' : 'in-memory',
+        });
       });
     })
     .catch((err) => {
-      // eslint-disable-next-line no-console
-      console.error('failed to start:', err.message);
+      new Logger({ service: 'attribution-svc' }).error('failed to start', { detail: err.message });
       process.exit(1);
     });
 }
