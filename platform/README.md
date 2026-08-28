@@ -30,6 +30,18 @@ helm upgrade --install core-crm helm/abet-service -f helm/values/core-crm.yaml -
 Covered services: core-crm, audit-evidence-svc, kyc-svc, attribution-svc,
 order-svc, partner-admin-svc, sync-gateway.
 
+### One API front door — `helm/abet-gateway`
+
+A single ingress on **`api.abetworks.in`** terminates TLS and routes each
+product's path prefix to its backend Service, with edge rate limiting, body-size
+caps, and security headers. Clients get one API; auth stays in each service
+(defense in depth). See [`helm/abet-gateway/README.md`](./helm/abet-gateway/README.md)
+for the route table.
+
+```bash
+helm upgrade --install abet-gateway helm/abet-gateway -f helm/abet-gateway/values.yaml -n abetworks
+```
+
 ## 2. SLA-ready (SLO + alerting)
 
 - [`sla/slo.yaml`](./sla/slo.yaml) — per-service objectives (availability,

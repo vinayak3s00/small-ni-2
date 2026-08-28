@@ -35,6 +35,10 @@ jobs:
             helm template "$n" platform/helm/abet-service -f "$v" | grep -q "kind: Deployment"
             echo "rendered $n"
           done
+          # API gateway chart.
+          helm lint platform/helm/abet-gateway
+          helm template abet-gateway platform/helm/abet-gateway | grep -q "kind: Ingress"
+          echo "rendered abet-gateway"
 
   tests:
     name: Service test suites
