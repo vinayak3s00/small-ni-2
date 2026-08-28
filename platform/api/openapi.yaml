@@ -1,0 +1,420 @@
+# Copyright (c) 2026 Abetworks (abetworks.in). All rights reserved.
+# Abetworks Proprietary and Confidential.
+#
+# Aggregated public API served through the gateway (api.abetworks.in). This is
+# the authoritative, machine-readable contract for every live route; it mirrors
+# the abet-gateway route table and the endpoints each service actually exposes.
+# Validated in CI (platform/api-tools) so it cannot drift from the gateway.
+openapi: 3.0.3
+info:
+  title: Abetworks API
+  version: 1.0.0
+  description: >-
+    One API for the Abetworks suite. All endpoints require a tenant-scoped
+    bearer JWT (except liveness/readiness). Errors share a single shape.
+  contact:
+    name: Abetworks
+    url: https://abetworks.in
+servers:
+  - url: https://api.abetworks.in
+    description: Production gateway
+
+security:
+  - bearerAuth: []
+
+tags:
+  - name: verticals
+    description: AbetVerticals — CRM records, bookings, attribution
+  - name: trust
+    description: AbetTrust — KYC/suitability, audit evidence
+  - name: field
+    description: AbetField — orders, stock, offline sync, visits
+  - name: partner
+    description: AbetPartner — agency workspaces, billing rollup
+  - name: platform
+    description: Cross-cutting health endpoints
+
+paths:
+  /healthz:
+    get:
+      tags: [platform]
+      summary: Liveness probe
+      security: []
+      responses:
+        "200":
+          description: Process is up
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: ok }
+
+  /readyz:
+    get:
+      tags: [platform]
+      summary: Readiness probe (dependencies reachable)
+      security: []
+      responses:
+        "200":
+          description: Ready
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Readiness" }
+        "503":
+          description: Degraded (a dependency is down)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Readiness" }
+
+  /v1/records:
+    post:
+      tags: [verticals]
+      summary: Create a CRM record (lead/patient/applicant)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RecordCreate" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Record" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    get:
+      tags: [verticals]
+      summary: List records for the tenant
+      parameters:
+        - name: minScore
+          in: query
+          schema: { type: integer }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Record" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /v1/bookings:
+    post:
+      tags: [verticals]
+      summary: Book a slot (no double-book)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [recordId, resourceId, slotStart]
+              properties:
+                recordId: { type: string }
+                resourceId: { type: string }
+                slotStart: { type: string, format: date-time }
+      responses:
+        "201": { description: Booked }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /v1/attribution/events:
+    post:
+      tags: [verticals]
+      summary: Record an attribution touch (append-only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [recordId, source]
+              properties:
+                recordId: { type: string }
+                source: { type: string, example: "portal:99acres" }
+                campaign: { type: string }
+                partnerCode: { type: string }
+                occurredAt: { type: string, format: date-time }
+      responses:
+        "201": { description: Recorded }
+        "400": { $ref: "#/components/responses/BadRequest" }
+
+  /v1/attribution/{recordId}:
+    get:
+      tags: [verticals]
+      summary: Resolve attribution touches + shares for a record
+      parameters:
+        - name: recordId
+          in: path
+          required: true
+          schema: { type: string }
+        - name: model
+          in: query
+          schema: { type: string, enum: [first_touch, last_touch, linear] }
+      responses:
+        "200": { description: OK }
+
+  /v1/kyc:
+    post:
+      tags: [trust]
+      summary: Create a KYC/suitability record
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [partyId]
+              properties:
+                partyId: { type: string }
+                documents: { type: array, items: { type: string } }
+      responses:
+        "201": { description: Created }
+        "400": { $ref: "#/components/responses/BadRequest" }
+
+  /v1/kyc/{id}/transition:
+    post:
+      tags: [trust]
+      summary: Transition KYC status
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [to]
+              properties:
+                to:
+                  type: string
+                  enum: [submitted, verified, rejected, expired]
+      responses:
+        "200": { description: OK }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/audit/events:
+    post:
+      tags: [trust]
+      summary: Append a tamper-evident audit event
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [action, entity, entityId]
+              properties:
+                action: { type: string, enum: [read, write, export] }
+                entity: { type: string }
+                entityId: { type: string }
+                fields: { type: array, items: { type: string } }
+      responses:
+        "201": { description: Appended }
+    get:
+      tags: [trust]
+      summary: Query audit events (compliance role)
+      responses:
+        "200": { description: OK }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /v1/evidence/packs:
+    post:
+      tags: [trust]
+      summary: Generate an auditor evidence pack (compliance role)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [period]
+              properties:
+                period: { type: string, example: "2026-Q2" }
+      responses:
+        "201": { description: Generated }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /v1/orders:
+    post:
+      tags: [field]
+      summary: Place a field order (GST-aware, stock-allocated)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [clientOrderId, outletId, currency, lines]
+              properties:
+                clientOrderId: { type: string }
+                outletId: { type: string }
+                currency: { type: string, example: INR }
+                lines:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      sku: { type: string }
+                      qty: { type: integer }
+      responses:
+        "201": { description: Placed }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { description: Unknown SKU }
+
+  /v1/catalog:
+    post:
+      tags: [field]
+      summary: Upsert a catalog item + stock
+      responses:
+        "204": { description: Upserted }
+
+  /v1/stock/{sku}:
+    get:
+      tags: [field]
+      summary: Current stock for a SKU
+      parameters:
+        - { name: sku, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: OK }
+
+  /v1/sync:
+    post:
+      tags: [field]
+      summary: Push offline-captured mutations (idempotent)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [mutations]
+              properties:
+                mutations:
+                  type: array
+                  items: { type: object }
+      responses:
+        "200": { description: Applied (with conflicts/duplicates reported) }
+
+  /v1/visits/check-in:
+    post:
+      tags: [field]
+      summary: Geo-verified outlet check-in
+      responses:
+        "201": { description: Checked in }
+        "400": { $ref: "#/components/responses/BadRequest" }
+
+  /v1/workspaces:
+    post:
+      tags: [partner]
+      summary: Provision an isolated client workspace
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [clientName]
+              properties:
+                clientName: { type: string }
+      responses:
+        "201": { description: Provisioned }
+        "409": { $ref: "#/components/responses/Conflict" }
+    get:
+      tags: [partner]
+      summary: List the partner's workspaces
+      responses:
+        "200": { description: OK }
+
+  /v1/billing/rollup:
+    get:
+      tags: [partner]
+      summary: Per-workspace usage rollup with margin
+      parameters:
+        - { name: wholesale, in: query, schema: { type: integer } }
+        - { name: retail, in: query, schema: { type: integer } }
+      responses:
+        "200": { description: OK }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  responses:
+    BadRequest:
+      description: Invalid input
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Unauthorized:
+      description: Missing or invalid token
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Forbidden:
+      description: Authenticated but not permitted
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Conflict:
+      description: Conflicting state (e.g. slot taken, duplicate)
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+  schemas:
+    Error:
+      type: object
+      description: The single error shape every service returns (from @abetworks/core).
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              enum: [bad_request, unauthorized, forbidden, not_found, conflict, unprocessable, internal]
+            message: { type: string }
+            details: {}
+            requestId: { type: string }
+    Readiness:
+      type: object
+      properties:
+        status: { type: string, enum: [ok, degraded] }
+        checks:
+          type: object
+          additionalProperties: { type: string, enum: [ok, fail] }
+    RecordCreate:
+      type: object
+      required: [vertical, source, party]
+      properties:
+        vertical: { type: string, enum: [realty, care, admit] }
+        source: { type: string }
+        party:
+          type: object
+          required: [name]
+          properties:
+            name: { type: string }
+            phones: { type: array, items: { type: string } }
+            languages: { type: array, items: { type: string } }
+    Record:
+      allOf:
+        - $ref: "#/components/schemas/RecordCreate"
+        - type: object
+          properties:
+            id: { type: string }
+            stage: { type: string }
+            score: { type: integer }
+            scoreReasons: { type: array, items: { type: string } }
+            createdAt: { type: string, format: date-time }

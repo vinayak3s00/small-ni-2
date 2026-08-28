@@ -42,6 +42,19 @@ for the route table.
 helm upgrade --install abet-gateway helm/abet-gateway -f helm/abet-gateway/values.yaml -n abetworks
 ```
 
+### One documented API contract — `api/openapi.yaml`
+
+[`platform/api/openapi.yaml`](./api/openapi.yaml) is the authoritative,
+machine-readable OpenAPI 3.0 spec for the public API served through the gateway
+(all 17 endpoints, the shared error shape, bearer auth, health probes). It's
+client-SDK-generatable and kept honest by `@abetworks/api-tools`, which
+validates the spec **and asserts it covers every gateway route** (drift guard) —
+run in CI so the docs can't rot:
+
+```bash
+node platform/api-tools/dist/check.js   # OK: OpenAPI valid and covers all gateway routes.
+```
+
 ## 2. SLA-ready (SLO + alerting)
 
 - [`sla/slo.yaml`](./sla/slo.yaml) — per-service objectives (availability,
