@@ -6,7 +6,7 @@
  */
 
 import Fastify, { FastifyInstance } from 'fastify';
-import { parseBearer, verifyToken, runWithPrincipal } from '@abetworks/core';
+import { parseBearer, verifyToken, runWithPrincipal, Logger } from '@abetworks/core';
 import { ReportingService, AccessDeniedError, type Branding, type WorkspaceGrant } from './reporting';
 
 const JWT_SECRET = process.env.JWT_SECRET ?? 'dev-secret-change-me';
@@ -59,7 +59,6 @@ if (require.main === module) {
   const app = buildServer();
   const port = Number(process.env.PORT ?? 3010);
   app.listen({ port, host: '0.0.0.0' }).then(() => {
-    // eslint-disable-next-line no-console
-    console.log(`reporting-svc listening on :${port}`);
+    new Logger({ service: 'reporting-svc' }).info('listening', { port });
   });
 }

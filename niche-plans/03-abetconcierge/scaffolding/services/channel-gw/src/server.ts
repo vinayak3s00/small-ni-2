@@ -6,6 +6,7 @@
  */
 
 import Fastify, { FastifyInstance } from 'fastify';
+import { Logger } from '@abetworks/core';
 import { normalizeInbound, verifyChallenge, verifySignature } from './whatsapp';
 
 const VERIFY_TOKEN = process.env.WA_VERIFY_TOKEN ?? 'dev-verify-token';
@@ -60,7 +61,6 @@ if (require.main === module) {
   const app = buildServer();
   const port = Number(process.env.PORT ?? 3012);
   app.listen({ port, host: '0.0.0.0' }).then(() => {
-    // eslint-disable-next-line no-console
-    console.log(`channel-gw listening on :${port}`);
+    new Logger({ service: 'channel-gw' }).info('listening', { port });
   });
 }

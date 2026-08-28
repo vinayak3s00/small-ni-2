@@ -6,7 +6,7 @@
  */
 
 import Fastify, { FastifyInstance } from 'fastify';
-import { parseBearer, verifyToken, runWithPrincipal, getPrincipal } from '@abetworks/core';
+import { parseBearer, verifyToken, runWithPrincipal, getPrincipal, Logger } from '@abetworks/core';
 import { RouteService, GeoCheckInError } from './routes';
 
 const JWT_SECRET = process.env.JWT_SECRET ?? 'dev-secret-change-me';
@@ -79,7 +79,6 @@ if (require.main === module) {
   const app = buildServer();
   const port = Number(process.env.PORT ?? 3009);
   app.listen({ port, host: '0.0.0.0' }).then(() => {
-    // eslint-disable-next-line no-console
-    console.log(`route-svc listening on :${port}`);
+    new Logger({ service: 'route-svc' }).info('listening', { port });
   });
 }

@@ -6,7 +6,7 @@
  */
 
 import Fastify, { FastifyInstance } from 'fastify';
-import { parseBearer, verifyToken, runWithPrincipal } from '@abetworks/core';
+import { parseBearer, verifyToken, runWithPrincipal, Logger } from '@abetworks/core';
 import { CallService, InMemoryDnd, DndBlockedError, type DndRegistry } from './calls';
 
 const JWT_SECRET = process.env.JWT_SECRET ?? 'dev-secret-change-me';
@@ -80,7 +80,6 @@ if (require.main === module) {
   const app = buildServer();
   const port = Number(process.env.PORT ?? 3004);
   app.listen({ port, host: '0.0.0.0' }).then(() => {
-    // eslint-disable-next-line no-console
-    console.log(`telephony-svc listening on :${port}`);
+    new Logger({ service: 'telephony-svc' }).info('listening', { port });
   });
 }

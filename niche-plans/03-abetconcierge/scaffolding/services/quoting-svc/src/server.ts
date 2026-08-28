@@ -6,7 +6,7 @@
  */
 
 import Fastify, { FastifyInstance } from 'fastify';
-import { parseBearer, verifyToken, runWithPrincipal, getPrincipal } from '@abetworks/core';
+import { parseBearer, verifyToken, runWithPrincipal, getPrincipal, Logger } from '@abetworks/core';
 import { buildQuote, UnknownSkuError, type CatalogItem } from './quoting';
 import { InMemoryOptInStore, guardOutbound } from './optin';
 
@@ -76,7 +76,6 @@ if (require.main === module) {
   const app = buildServer();
   const port = Number(process.env.PORT ?? 3003);
   app.listen({ port, host: '0.0.0.0' }).then(() => {
-    // eslint-disable-next-line no-console
-    console.log(`quoting-svc listening on :${port}`);
+    new Logger({ service: 'quoting-svc' }).info('listening', { port });
   });
 }
