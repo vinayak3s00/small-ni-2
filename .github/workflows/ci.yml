@@ -40,6 +40,23 @@ jobs:
           helm template abet-gateway platform/helm/abet-gateway | grep -q "kind: Ingress"
           echo "rendered abet-gateway"
 
+  openapi:
+    name: OpenAPI spec + gateway drift check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Validate spec and gateway-route coverage
+        run: |
+          set -euo pipefail
+          cd platform/api-tools
+          npm install && npm run build && npm test
+          # check.js resolves paths from the repo root (its cwd).
+          cd "$GITHUB_WORKSPACE" && node platform/api-tools/dist/check.js
+
   tests:
     name: Service test suites
     runs-on: ubuntu-latest
