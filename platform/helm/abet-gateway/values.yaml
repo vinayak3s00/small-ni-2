@@ -1,0 +1,57 @@
+# Copyright (c) 2026 Abetworks (abetworks.in). All rights reserved.
+# Abetworks Proprietary and Confidential.
+#
+# API gateway configuration. One host, TLS-terminated, routing each product's
+# path prefix to its ClusterIP Service (port 80). Edge policy (rate limiting,
+# security headers, body size) is applied via ingress-nginx annotations so the
+# whole platform is reachable and protected through one front door.
+
+# Public host clients hit.
+host: api.abetworks.in
+
+ingressClassName: nginx
+
+tls:
+  enabled: true
+  secretName: abet-api-tls   # cert-manager / uploaded TLS cert lives here
+
+# Edge protections applied to every route.
+edge:
+  # Per-client request rate (ingress-nginx: requests/second).
+  rateLimitRps: 50
+  # Burst multiplier over the base rate.
+  rateLimitBurstMultiplier: 5
+  # Max request body (protects ingestion endpoints).
+  maxBodySize: 2m
+  # Add HSTS + standard security headers at the edge.
+  securityHeaders: true
+
+# Route table: path prefix -> backend Service name (all listen on port 80).
+# Longest prefix wins in ingress-nginx, so keep these specific.
+routes:
+  - path: /v1/records
+    service: core-crm
+  - path: /v1/bookings
+    service: core-crm
+  - path: /v1/attribution
+    service: attribution-svc
+  - path: /v1/audit
+    service: audit-evidence-svc
+  - path: /v1/evidence
+    service: audit-evidence-svc
+  - path: /v1/kyc
+    service: kyc-svc
+  - path: /v1/orders
+    service: order-svc
+  - path: /v1/catalog
+    service: order-svc
+  - path: /v1/stock
+    service: order-svc
+  - path: /v1/workspaces
+    service: partner-admin-svc
+  - path: /v1/billing
+    service: partner-admin-svc
+  - path: /v1/sync
+    service: sync-gateway
+  - path: /v1/visits
+    service: sync-gateway

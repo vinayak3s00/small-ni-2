@@ -1,0 +1,52 @@
+{{/*
+Copyright (c) 2026 Abetworks (abetworks.in). All rights reserved.
+Abetworks Proprietary and Confidential.
+*/}}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: abet-gateway
+  labels:
+    app.kubernetes.io/name: abet-gateway
+    app.kubernetes.io/part-of: abetworks
+    app.kubernetes.io/managed-by: helm
+  annotations:
+    # Edge rate limiting (per client IP).
+    nginx.ingress.kubernetes.io/limit-rps: {{ .Values.edge.rateLimitRps | quote }}
+    nginx.ingress.kubernetes.io/limit-burst-multiplier: {{ .Values.edge.rateLimitBurstMultiplier | quote }}
+    # Bound request body size to protect ingestion endpoints.
+    nginx.ingress.kubernetes.io/proxy-body-size: {{ .Values.edge.maxBodySize | quote }}
+    # Preserve / propagate a correlation id to backends.
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      more_set_headers "X-Request-Id: $req_id";
+    {{- if .Values.edge.securityHeaders }}
+    nginx.ingress.kubernetes.io/server-snippet: |
+      more_set_headers "Strict-Transport-Security: max-age=31536000; includeSubDomains";
+      more_set_headers "X-Content-Type-Options: nosniff";
+      more_set_headers "X-Frame-Options: DENY";
+      more_set_headers "Referrer-Policy: strict-origin-when-cross-origin";
+    {{- end }}
+    {{- if .Values.tls.enabled }}
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    {{- end }}
+spec:
+  ingressClassName: {{ .Values.ingressClassName }}
+  {{- if .Values.tls.enabled }}
+  tls:
+    - hosts:
+        - {{ .Values.host }}
+      secretName: {{ .Values.tls.secretName }}
+  {{- end }}
+  rules:
+    - host: {{ .Values.host }}
+      http:
+        paths:
+          {{- range .Values.routes }}
+          - path: {{ .path }}
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ .service }}
+                port:
+                  number: 80
+          {{- end }}
