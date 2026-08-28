@@ -6,12 +6,15 @@
 """FastAPI PDP + grounding endpoints for AbetTrust."""
 from __future__ import annotations
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Header
 from pydantic import BaseModel
 
+from abet_meter import MeterEmitter
 from policy import Actor, evaluate, check_grounding
 
 app = FastAPI(title="AbetTrust Policy Engine", version="1.0.0")
+# Billable-usage emitter. Tests replace `app.state.meter` with an in-memory sink.
+app.state.meter = MeterEmitter(service="policy-engine")
 
 
 class ActorModel(BaseModel):
@@ -44,13 +47,15 @@ def healthz() -> dict[str, str]:
 
 
 @app.post("/v1/policy/evaluate", response_model=EvaluateResponse)
-def policy_evaluate(req: EvaluateRequest) -> EvaluateResponse:
+def policy_evaluate(req: EvaluateRequest, x_tenant_id: str | None = Header(default=None)) -> EvaluateResponse:
     d = evaluate(
         Actor(sub=req.actor.sub, roles=req.actor.roles),
         req.action,
         req.resource,
         req.fields,
     )
+    # Billable usage: a governed policy decision is an AI action.
+    app.state.meter.count("ai_actions", x_tenant_id, source=f"policy:{req.action}")
     return EvaluateResponse(
         decision="allow" if d.allow else "deny",
         reasons=d.reasons,
@@ -59,5 +64,8 @@ def policy_evaluate(req: EvaluateRequest) -> EvaluateResponse:
 
 
 @app.post("/v1/grounding/check")
-def grounding_check(req: GroundingRequest) -> dict:
-    return check_grounding(req.text, req.approvedSources)
+def grounding_check(req: GroundingRequest, x_tenant_id: str | None = Header(default=None)) -> dict:
+    result = check_grounding(req.text, req.approvedSources)
+    # Billable usage: a grounding/citation check is an AI action.
+    app.state.meter.count("ai_actions", x_tenant_id, event_id=req.messageId, source="grounding")
+    return result

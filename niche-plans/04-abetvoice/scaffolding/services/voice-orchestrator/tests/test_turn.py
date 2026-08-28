@@ -72,3 +72,22 @@ def test_api_invalid_transition_409():
     client.post("/v1/calls/call-2/start")
     r = client.post("/v1/events", json={"callId": "call-2", "event": "reply_ready"})
     assert r.status_code == 409
+
+
+def test_reply_ready_emits_one_ai_action_meter():
+    from abet_meter import InMemoryMeterSink, MeterEmitter
+
+    sink = InMemoryMeterSink()
+    app.state.meter = MeterEmitter(service="voice-orchestrator", sink=sink)
+    try:
+        client.post("/v1/calls/call-m/start")
+        hdr = {"X-Tenant-Id": "tenant-v"}
+        client.post("/v1/events", json={"callId": "call-m", "event": "stt_final"}, headers=hdr)
+        client.post("/v1/events", json={"callId": "call-m", "event": "reply_ready"}, headers=hdr)
+        # Only reply_ready bills; stt_final does not.
+        assert len(sink.events) == 1
+        assert sink.events[0]["meter"] == "ai_actions"
+        assert sink.events[0]["tenantId"] == "tenant-v"
+        assert sink.events[0]["source"] == "voice_turn"
+    finally:
+        app.state.meter = MeterEmitter(service="voice-orchestrator")
