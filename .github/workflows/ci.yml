@@ -67,6 +67,18 @@ jobs:
       - name: Ruff check
         run: uvx ruff check .
 
+  ts-lint:
+    name: TypeScript lint (ESLint)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: ESLint check
+        run: npm install && npm run lint
+
   tests:
     name: Service test suites
     runs-on: ubuntu-latest
