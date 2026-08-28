@@ -15,7 +15,7 @@ from __future__ import annotations
 import csv
 import io
 from dataclasses import dataclass, field
-from typing import Iterable, Protocol
+from typing import Protocol
 
 
 @dataclass

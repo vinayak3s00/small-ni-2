@@ -9,9 +9,8 @@ from __future__ import annotations
 from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
-
 from mapping import CutoverResult, FieldMap, MappingSpec, TargetStore, cutover, rollback
+from pydantic import BaseModel
 
 app = FastAPI(title="AbetMigrate Mapping Engine", version="1.0.0")
 

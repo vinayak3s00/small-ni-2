@@ -3,10 +3,9 @@
 # or use of this file, via any medium, is strictly prohibited.
 # See the LICENSE file at the repository root. Contact: legal@abetworks.in
 
-from fastapi.testclient import TestClient
-
-from journey import JourneyEngine
 from app import app
+from fastapi.testclient import TestClient
+from journey import JourneyEngine
 
 client = TestClient(app)
 

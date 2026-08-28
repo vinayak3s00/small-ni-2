@@ -6,12 +6,11 @@
 """FastAPI app for the AbetConcierge concierge agent."""
 from __future__ import annotations
 
-from fastapi import FastAPI
-from pydantic import BaseModel
-
 from abet_meter import MeterEmitter
 from commerce import handle
+from fastapi import FastAPI
 from identity import IdentityGraph
+from pydantic import BaseModel
 
 app = FastAPI(title="AbetConcierge Agent", version="1.0.0")
 

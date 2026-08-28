@@ -3,10 +3,9 @@
 # or use of this file, via any medium, is strictly prohibited.
 # See the LICENSE file at the repository root. Contact: legal@abetworks.in
 
-from fastapi.testclient import TestClient
-
-from policy import Actor, evaluate, check_grounding
 from app import app
+from fastapi.testclient import TestClient
+from policy import Actor, check_grounding, evaluate
 
 client = TestClient(app)
 

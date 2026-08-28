@@ -6,11 +6,10 @@
 """FastAPI PDP + grounding endpoints for AbetTrust."""
 from __future__ import annotations
 
-from fastapi import FastAPI, Header
-from pydantic import BaseModel
-
 from abet_meter import MeterEmitter
-from policy import Actor, evaluate, check_grounding
+from fastapi import FastAPI, Header
+from policy import Actor, check_grounding, evaluate
+from pydantic import BaseModel
 
 app = FastAPI(title="AbetTrust Policy Engine", version="1.0.0")
 # Billable-usage emitter. Tests replace `app.state.meter` with an in-memory sink.

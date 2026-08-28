@@ -18,10 +18,10 @@ natural and hits the sub-800ms responsiveness target from the NFRs.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 
 
-class TurnState(str, Enum):
+class TurnState(StrEnum):
     LISTENING = "listening"
     THINKING = "thinking"
     SPEAKING = "speaking"

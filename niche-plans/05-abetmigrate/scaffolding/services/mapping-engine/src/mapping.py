@@ -13,8 +13,9 @@ Reliability guarantees from the plan:
 """
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import Any
 
 # Built-in field transforms available to a mapping rule.
 TRANSFORMS: dict[str, Callable[[Any], Any]] = {
@@ -22,7 +23,7 @@ TRANSFORMS: dict[str, Callable[[Any], Any]] = {
     "lower": lambda v: v.lower() if isinstance(v, str) else v,
     "upper": lambda v: v.upper() if isinstance(v, str) else v,
     "strip": lambda v: v.strip() if isinstance(v, str) else v,
-    "to_minor": lambda v: int(round(float(v) * 100)),  # rupees -> paise
+    "to_minor": lambda v: round(float(v) * 100),  # rupees -> paise (round() returns int)
 }
 
 

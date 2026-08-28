@@ -6,10 +6,9 @@
 """FastAPI app driving the AbetVoice turn state machine per call session."""
 from __future__ import annotations
 
+from abet_meter import MeterEmitter
 from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel
-
-from abet_meter import MeterEmitter
 from turn import InvalidTransition, TurnMachine, TurnState
 
 app = FastAPI(title="AbetVoice Orchestrator", version="1.0.0")

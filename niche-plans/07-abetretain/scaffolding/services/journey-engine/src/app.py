@@ -7,9 +7,8 @@
 from __future__ import annotations
 
 from fastapi import FastAPI
-from pydantic import BaseModel
-
 from journey import JourneyEngine
+from pydantic import BaseModel
 
 app = FastAPI(title="AbetRetain Journey Engine", version="1.0.0")
 

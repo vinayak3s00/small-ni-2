@@ -4,10 +4,9 @@
 # See the LICENSE file at the repository root. Contact: legal@abetworks.in
 
 import pytest
-from fastapi.testclient import TestClient
-
-from connectors import extract, get_connector, StagingRecord
 from app import app
+from connectors import StagingRecord, extract, get_connector
+from fastapi.testclient import TestClient
 
 client = TestClient(app)
 
