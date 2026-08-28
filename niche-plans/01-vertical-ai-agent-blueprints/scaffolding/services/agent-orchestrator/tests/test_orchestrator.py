@@ -69,3 +69,44 @@ def test_api_answer_endpoint():
     body = resp.json()
     assert body["escalated"] is False
     assert body["citations"] == ["brochure-1"]
+
+
+def test_answer_emits_ai_actions_meter():
+    from abet_meter import InMemoryMeterSink, MeterEmitter
+
+    sink = InMemoryMeterSink()
+    app.state.meter = MeterEmitter(service="agent-orchestrator", sink=sink)
+    try:
+        resp = client.post(
+            "/v1/agent/answer",
+            json={
+                "vertical": "realty",
+                "query": "3BHK ready-to-move flats?",
+                "sources": [{"id": "b1", "text": "Green Acres has 3BHK ready-to-move flats."}],
+                "eventId": "conv-1",
+            },
+            headers={"X-Tenant-Id": "tenant-ao"},
+        )
+        assert resp.status_code == 200
+        assert len(sink.events) == 1
+        assert sink.events[0]["meter"] == "ai_actions"
+        assert sink.events[0]["tenantId"] == "tenant-ao"
+        assert sink.events[0]["eventId"] == "conv-1"
+    finally:
+        app.state.meter = MeterEmitter(service="agent-orchestrator")
+
+
+def test_answer_without_tenant_does_not_bill():
+    from abet_meter import InMemoryMeterSink, MeterEmitter
+
+    sink = InMemoryMeterSink()
+    app.state.meter = MeterEmitter(service="agent-orchestrator", sink=sink)
+    try:
+        resp = client.post(
+            "/v1/agent/answer",
+            json={"vertical": "realty", "query": "hi", "sources": []},
+        )
+        assert resp.status_code == 200
+        assert sink.events == []
+    finally:
+        app.state.meter = MeterEmitter(service="agent-orchestrator")

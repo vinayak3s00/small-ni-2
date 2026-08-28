@@ -6,12 +6,16 @@
 """FastAPI app exposing explainable scoring for AbetVerticals."""
 from __future__ import annotations
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel, Field
 
+from abet_meter import MeterEmitter
 from scoring import ScoringPack, score_record
 
 app = FastAPI(title="AbetVerticals Scoring", version="1.0.0")
+
+# Billable-usage emitter. Tests replace `app.state.meter` with an in-memory sink.
+app.state.meter = MeterEmitter(service="scoring-svc")
 
 # In a real deployment these are loaded per-tenant from the Vertical Intelligence
 # Pack store. Bundled defaults keep the service runnable standalone.
@@ -65,6 +69,9 @@ _PACKS: dict[str, ScoringPack] = {
 class ScoreRequest(BaseModel):
     vertical: str = Field(examples=["realty", "care", "admit"])
     signals: dict[str, bool]
+    # Optional idempotency key (e.g. the scored record id) so at-least-once
+    # delivery downstream dedupes cleanly.
+    eventId: str | None = None
 
 
 class ScoreResponse(BaseModel):
@@ -79,11 +86,17 @@ def healthz() -> dict[str, str]:
 
 
 @app.post("/v1/score", response_model=ScoreResponse)
-def score(req: ScoreRequest) -> ScoreResponse:
+def score(req: ScoreRequest, x_tenant_id: str | None = Header(default=None)) -> ScoreResponse:
     pack = _PACKS.get(req.vertical)
     if pack is None:
         raise HTTPException(status_code=404, detail=f"unknown vertical: {req.vertical}")
     result = score_record(pack, req.signals)
+    # Billable usage: an explainable score is an AI action. Tenant comes from the
+    # X-Tenant-Id header the gateway/caller propagates. Only successful scores
+    # are billed (unknown-vertical requests raise before reaching here).
+    app.state.meter.count(
+        "ai_actions", x_tenant_id, event_id=req.eventId, source=f"score:{req.vertical}"
+    )
     return ScoreResponse(
         score=result.score, reasons=result.reasons, refreshedAt=result.refreshed_at
     )

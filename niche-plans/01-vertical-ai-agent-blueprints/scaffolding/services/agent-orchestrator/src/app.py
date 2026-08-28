@@ -6,12 +6,16 @@
 """FastAPI app for the AbetVerticals agent orchestrator."""
 from __future__ import annotations
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Header
 from pydantic import BaseModel
 
+from abet_meter import MeterEmitter
 from orchestrator import Source, answer
 
 app = FastAPI(title="AbetVerticals Agent Orchestrator", version="1.0.0")
+
+# Billable-usage emitter. Tests replace `app.state.meter` with an in-memory sink.
+app.state.meter = MeterEmitter(service="agent-orchestrator")
 
 
 class SourceModel(BaseModel):
@@ -24,6 +28,7 @@ class AnswerRequest(BaseModel):
     query: str
     sources: list[SourceModel] = []
     conversation: list[str] = []
+    eventId: str | None = None
 
 
 class AnswerResponse(BaseModel):
@@ -40,12 +45,16 @@ def healthz() -> dict[str, str]:
 
 
 @app.post("/v1/agent/answer", response_model=AnswerResponse)
-def agent_answer(req: AnswerRequest) -> AnswerResponse:
+def agent_answer(req: AnswerRequest, x_tenant_id: str | None = Header(default=None)) -> AnswerResponse:
     result = answer(
         req.vertical,
         req.query,
         [Source(s.id, s.text) for s in req.sources],
         req.conversation,
+    )
+    # Billable usage: every agent answer (grounded or escalated) is an AI action.
+    app.state.meter.count(
+        "ai_actions", x_tenant_id, event_id=req.eventId, source=f"answer:{req.vertical}"
     )
     return AnswerResponse(
         reply=result.reply,

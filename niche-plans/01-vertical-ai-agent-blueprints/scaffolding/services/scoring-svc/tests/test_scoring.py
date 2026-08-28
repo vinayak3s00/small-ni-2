@@ -68,3 +68,54 @@ def test_api_scores_realty():
 def test_api_unknown_vertical_404():
     resp = client.post("/v1/score", json={"vertical": "nope", "signals": {}})
     assert resp.status_code == 404
+
+
+def test_score_emits_ai_actions_meter_with_tenant():
+    from abet_meter import InMemoryMeterSink, MeterEmitter
+
+    sink = InMemoryMeterSink()
+    app.state.meter = MeterEmitter(service="scoring-svc", sink=sink)
+    try:
+        resp = client.post(
+            "/v1/score",
+            json={"vertical": "realty", "signals": {"verified_phone": True}, "eventId": "rec-1"},
+            headers={"X-Tenant-Id": "tenant-s"},
+        )
+        assert resp.status_code == 200
+        assert len(sink.events) == 1
+        assert sink.events[0]["meter"] == "ai_actions"
+        assert sink.events[0]["tenantId"] == "tenant-s"
+        assert sink.events[0]["eventId"] == "rec-1"
+        assert sink.events[0]["service"] == "scoring-svc"
+    finally:
+        app.state.meter = MeterEmitter(service="scoring-svc")
+
+
+def test_no_tenant_header_does_not_bill():
+    from abet_meter import InMemoryMeterSink, MeterEmitter
+
+    sink = InMemoryMeterSink()
+    app.state.meter = MeterEmitter(service="scoring-svc", sink=sink)
+    try:
+        resp = client.post("/v1/score", json={"vertical": "realty", "signals": {}})
+        assert resp.status_code == 200
+        assert sink.events == []  # no tenant => nothing billable
+    finally:
+        app.state.meter = MeterEmitter(service="scoring-svc")
+
+
+def test_unknown_vertical_does_not_bill():
+    from abet_meter import InMemoryMeterSink, MeterEmitter
+
+    sink = InMemoryMeterSink()
+    app.state.meter = MeterEmitter(service="scoring-svc", sink=sink)
+    try:
+        resp = client.post(
+            "/v1/score",
+            json={"vertical": "nope", "signals": {}},
+            headers={"X-Tenant-Id": "tenant-s"},
+        )
+        assert resp.status_code == 404
+        assert sink.events == []  # failed score not billed
+    finally:
+        app.state.meter = MeterEmitter(service="scoring-svc")
