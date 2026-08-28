@@ -127,6 +127,18 @@ bash demo/smoke.sh    # 7 end-to-end checks: lead -> attribution -> KYC -> order
 - **`license-headers`** — `scripts/check_license_headers.sh` fails the build if any source file is missing the proprietary header.
 - **`tests`** — `scripts/run_all_tests.sh` builds `@abetworks/core` then runs every TS (vitest) and Python (pytest) suite; the job fails if any suite fails.
 - **`db-integration`** — a matrix job spins up Postgres and runs the real integration tests for `core-crm`, `audit-evidence-svc`, `attribution-svc`, `kyc-svc`, `order-svc`, `partner-admin-svc`, and `sync-gateway`.
+- **`helm-lint`** — lints the reusable chart and renders every service's manifests.
+
+### Day-1 launch kit (deploy · SLA · revenue)
+
+The [`platform/`](../platform/README.md) directory makes every niche
+**deployment-ready, SLA-ready, and revenue-ready from day one**:
+- **`platform/helm`** — one reusable Helm chart + per-service values (Deployment,
+  Service, HPA, PDB, `/healthz` + `/readyz` probes) for all 7 deployable services.
+- **`platform/sla`** — machine-readable SLOs, Prometheus burn-rate alert rules,
+  and the published SLA + service-credit schedule.
+- **`platform/billing`** — `@abetworks/billing`: plans, idempotent usage metering,
+  and deterministic invoice + SLA-credit calculation.
 
 Run the same checks locally:
 ```bash

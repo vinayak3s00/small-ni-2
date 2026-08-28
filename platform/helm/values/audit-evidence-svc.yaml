@@ -1,0 +1,10 @@
+# Copyright (c) 2026 Abetworks (abetworks.in). All rights reserved.
+# Abetworks Proprietary and Confidential.
+name: audit-evidence-svc
+image: registry.abetworks.in/audit-evidence-svc:1.0.0
+port: 3002
+envFromSecrets: [audit-evidence-db, platform-jwt]
+autoscaling: { enabled: true, minReplicas: 2, maxReplicas: 8, targetCPUUtilizationPercentage: 70 }
+resources:
+  requests: { cpu: 100m, memory: 160Mi }
+  limits: { cpu: 500m, memory: 512Mi }

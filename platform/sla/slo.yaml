@@ -1,0 +1,43 @@
+# Copyright (c) 2026 Abetworks (abetworks.in). All rights reserved.
+# Abetworks Proprietary and Confidential.
+#
+# Machine-readable Service Level Objectives. These are the numbers the platform
+# is operated and (for the Scale tier) contractually held to. Alert rules in
+# alerts.rules.yaml are generated from the same targets.
+version: 1
+
+# Platform-wide defaults (inherited unless a service overrides).
+defaults:
+  availability_target: 0.999        # 99.9% successful requests (monthly)
+  latency_p95_ms: 300               # read p95
+  latency_p95_write_ms: 800         # write p95
+  error_budget_window: 30d
+
+services:
+  core-crm:
+    tier: critical
+    availability_target: 0.999
+    latency_p95_ms: 300
+    latency_p95_write_ms: 800
+  audit-evidence-svc:
+    tier: critical
+    availability_target: 0.9995     # audit ingest must not drop
+    latency_p95_write_ms: 500
+  kyc-svc:
+    tier: critical
+    availability_target: 0.999
+  attribution-svc:
+    tier: standard
+    availability_target: 0.999
+    freshness_seconds: 30           # attribution reflects a touch within 30s
+  order-svc:
+    tier: critical
+    availability_target: 0.999
+    latency_p95_write_ms: 800
+  partner-admin-svc:
+    tier: standard
+    availability_target: 0.999
+  sync-gateway:
+    tier: critical
+    availability_target: 0.999
+    latency_p95_write_ms: 800        # offline batches must land fast on reconnect

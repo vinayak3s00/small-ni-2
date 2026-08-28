@@ -17,7 +17,7 @@ while IFS= read -r f; do
     echo "MISSING HEADER: $f"
     missing=$((missing + 1))
   fi
-done < <(git ls-files 'niche-plans/**/*.ts' 'niche-plans/**/*.py')
+done < <(git ls-files 'niche-plans/**/*.ts' 'niche-plans/**/*.py' 'platform/**/*.ts' 'platform/**/*.py')
 
 echo "checked $checked file(s), $missing missing header(s)"
 if [ "$missing" -ne 0 ]; then

@@ -17,6 +17,25 @@ jobs:
       - name: Verify proprietary headers
         run: bash scripts/check_license_headers.sh
 
+  helm-lint:
+    name: Helm chart lint + template
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.15.4
+      - name: Lint chart and render every service
+        run: |
+          set -euo pipefail
+          helm lint platform/helm/abet-service -f platform/helm/values/core-crm.yaml
+          for v in platform/helm/values/*.yaml; do
+            n=$(basename "$v" .yaml)
+            helm template "$n" platform/helm/abet-service -f "$v" | grep -q "kind: Deployment"
+            echo "rendered $n"
+          done
+
   tests:
     name: Service test suites
     runs-on: ubuntu-latest

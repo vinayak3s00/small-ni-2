@@ -1,0 +1,10 @@
+# Copyright (c) 2026 Abetworks (abetworks.in). All rights reserved.
+# Abetworks Proprietary and Confidential.
+name: kyc-svc
+image: registry.abetworks.in/kyc-svc:1.0.0
+port: 3007
+envFromSecrets: [kyc-db, platform-jwt]
+autoscaling: { enabled: true, minReplicas: 2, maxReplicas: 10, targetCPUUtilizationPercentage: 70 }
+resources:
+  requests: { cpu: 100m, memory: 160Mi }
+  limits: { cpu: 500m, memory: 512Mi }
