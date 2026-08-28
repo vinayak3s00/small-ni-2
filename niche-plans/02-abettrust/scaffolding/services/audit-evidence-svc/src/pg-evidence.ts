@@ -19,21 +19,24 @@ import {
 } from './evidence';
 
 function asRunner(client: PoolClient): QueryRunner {
-  return { query: (sql, params) => client.query(sql, params as any[]) };
+  return { query: (sql, params) => client.query(sql, params as unknown[]) };
 }
 
-function mapRow(r: any): ChainedEvent {
+/** A raw database row (column name -> value) before it is mapped to a domain type. */
+type Row = Record<string, unknown>;
+
+function mapRow(r: Row): ChainedEvent {
   return {
-    tenantId: r.tenant_id,
-    actor: r.actor,
-    action: r.action,
-    entity: r.entity,
-    entityId: r.entity_id,
-    fields: r.fields ?? undefined,
-    at: new Date(r.at).toISOString(),
+    tenantId: r.tenant_id as string,
+    actor: r.actor as string,
+    action: r.action as ChainedEvent['action'],
+    entity: r.entity as string,
+    entityId: r.entity_id as string,
+    fields: (r.fields as string[] | null) ?? undefined,
+    at: new Date(r.at as string).toISOString(),
     seq: Number(r.seq),
-    prevHash: r.prev_hash,
-    hash: r.hash,
+    prevHash: r.prev_hash as string,
+    hash: r.hash as string,
   };
 }
 
@@ -64,8 +67,9 @@ export class PgAuditStore implements AuditStore {
       const last = await tx.query(
         'SELECT seq, hash FROM audit_event ORDER BY seq DESC LIMIT 1',
       );
-      const seq = last.rows[0] ? Number(last.rows[0].seq) + 1 : 0;
-      const prevHash = last.rows[0] ? last.rows[0].hash : GENESIS;
+      const lastRow = last.rows[0] as Row | undefined;
+      const seq = lastRow ? Number(lastRow.seq) + 1 : 0;
+      const prevHash = lastRow ? (lastRow.hash as string) : GENESIS;
       const hash = linkHash(prevHash, event, seq);
 
       await tx.query(
@@ -82,7 +86,7 @@ export class PgAuditStore implements AuditStore {
       const { rows } = await tx.query('SELECT * FROM audit_event ORDER BY seq');
       let prev = GENESIS;
       for (let i = 0; i < rows.length; i++) {
-        const e = mapRow(rows[i]);
+        const e = mapRow(rows[i] as Row);
         if (e.seq !== i || e.prevHash !== prev) return false;
         const { seq, prevHash, hash, ...raw } = e;
         if (linkHash(prevHash, raw as AuditEvent, seq) !== hash) return false;
@@ -102,7 +106,7 @@ export class PgAuditStore implements AuditStore {
          ORDER BY seq`,
         [filter.action ?? null, filter.from ?? null, filter.to ?? null],
       );
-      return rows.map(mapRow);
+      return (rows as Row[]).map(mapRow);
     });
   }
 
@@ -112,7 +116,7 @@ export class PgAuditStore implements AuditStore {
         'SELECT hash FROM audit_event WHERE at >= $1 AND at <= $2 ORDER BY seq',
         [from, to],
       );
-      const root = merkleRoot(rows.map((r: any) => r.hash));
+      const root = merkleRoot((rows as Row[]).map((r) => r.hash as string));
       const generatedAt = new Date().toISOString();
       const hash = sha256(period + generatedAt + root + rows.length);
       await tx.query(

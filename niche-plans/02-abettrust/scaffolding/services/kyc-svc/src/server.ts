@@ -5,7 +5,7 @@
  * See the LICENSE file at the repository root. Contact: legal@abetworks.in
  */
 
-import Fastify, { FastifyInstance } from 'fastify';
+import Fastify, { FastifyInstance, FastifyRequest } from 'fastify';
 import {
   parseBearer,
   verifyToken,
@@ -29,6 +29,12 @@ import {
 
 const JWT_SECRET = process.env.JWT_SECRET ?? 'dev-secret-change-me';
 
+// The onRequest hook replaces Fastify's built-in `request.log` (Pino) with a
+// platform `Logger` child. Fastify owns the `log` decoration type, so we read
+// and write it through this narrowly-cast accessor instead of `any`.
+type RequestLog = { log: Logger };
+const reqLog = (req: FastifyRequest): Logger => (req as unknown as RequestLog).log;
+
 export interface ServerDeps {
   store?: KycStore;
   /** Readiness probe for the datastore (e.g. `SELECT 1`); ok=true when healthy. */
@@ -44,10 +50,10 @@ export function buildServer(deps: ServerDeps = {}): FastifyInstance {
   const meter = new MeterEmitter({ service: 'kyc-svc', sink: deps.meterSink });
 
   // Correlate every request: bind/propagate a request id + child logger.
-  app.addHook('onRequest', async (req: any, reply) => {
+  app.addHook('onRequest', async (req: FastifyRequest, reply) => {
     const requestId = requestIdFrom(req.headers['x-request-id']);
     req.requestId = requestId;
-    req.log = log.child({ requestId });
+    (req as unknown as RequestLog).log = log.child({ requestId });
     reply.header('x-request-id', requestId);
 
     if (req.url === '/healthz' || req.url === '/readyz') return;
@@ -56,13 +62,13 @@ export function buildServer(deps: ServerDeps = {}): FastifyInstance {
       req.principal = verifyToken(parseBearer(req.headers.authorization), JWT_SECRET);
     } catch (err) {
       const { statusCode, body } = toErrorResponse(AppError.unauthorized(), requestId);
-      req.log.warn('auth failed', { detail: (err as Error).message });
+      reqLog(req).warn('auth failed', { detail: (err as Error).message });
       reply.code(statusCode).send(body);
     }
   });
 
-  app.addHook('onResponse', async (req: any, reply) => {
-    req.log?.info('request', {
+  app.addHook('onResponse', async (req: FastifyRequest, reply) => {
+    reqLog(req)?.info('request', {
       method: req.method,
       url: req.url,
       status: reply.statusCode,
@@ -70,8 +76,8 @@ export function buildServer(deps: ServerDeps = {}): FastifyInstance {
     });
   });
 
-  const withCtx = <T>(req: any, fn: () => Promise<T>): Promise<T> =>
-    runWithPrincipal(req.principal, fn);
+  const withCtx = <T>(req: FastifyRequest, fn: () => Promise<T>): Promise<T> =>
+    runWithPrincipal(req.principal!, fn);
 
   app.get('/healthz', async () => ({ status: 'ok' }));
 
@@ -80,7 +86,7 @@ export function buildServer(deps: ServerDeps = {}): FastifyInstance {
     return reply.code(report.status === 'ok' ? 200 : 503).send(report);
   });
 
-  app.post('/v1/kyc', async (req: any, reply) => {
+  app.post<{ Body: { partyId?: string; documents?: string[] } }>('/v1/kyc', async (req, reply) => {
     const { partyId, documents } = req.body ?? {};
     if (!partyId) throw AppError.badRequest('partyId required');
     const rec = await withCtx(req, async () => {
@@ -89,42 +95,42 @@ export function buildServer(deps: ServerDeps = {}): FastifyInstance {
       meter.count('ai_actions', { eventId: created.id, source: 'kyc' });
       return created;
     });
-    req.log.info('kyc created', { kycId: rec.id, partyId });
+    reqLog(req).info('kyc created', { kycId: rec.id, partyId });
     return reply.code(201).send(rec);
   });
 
-  app.post('/v1/kyc/:id/transition', async (req: any) => {
+  app.post<{ Params: { id: string }; Body: { to?: KycStatus } }>('/v1/kyc/:id/transition', async (req) => {
     const to = req.body?.to as KycStatus;
     const rec = await withCtx(req, () => store.transition(req.params.id, to));
-    req.log.info('kyc transition', { kycId: req.params.id, to });
+    reqLog(req).info('kyc transition', { kycId: req.params.id, to });
     return rec;
   });
 
-  app.post('/v1/kyc/:id/disclosures', async (req: any) => {
+  app.post<{ Params: { id: string }; Body: { disclosure?: string } }>('/v1/kyc/:id/disclosures', async (req) => {
     const { disclosure } = req.body ?? {};
     if (!disclosure) throw AppError.badRequest('disclosure required');
     const rec = await withCtx(req, () => store.addDisclosure(req.params.id, disclosure));
-    req.log.info('kyc disclosure added', { kycId: req.params.id });
+    reqLog(req).info('kyc disclosure added', { kycId: req.params.id });
     return rec;
   });
 
-  app.get('/v1/kyc/:id/suitability', async (req: any) =>
+  app.get<{ Params: { id: string } }>('/v1/kyc/:id/suitability', async (req) =>
     withCtx(req, async () => ({ complete: await store.isSuitabilityComplete(req.params.id) })),
   );
 
-  app.get('/v1/kyc/:id', async (req: any) => {
+  app.get<{ Params: { id: string } }>('/v1/kyc/:id', async (req) => {
     const rec = await withCtx(req, () => store.get(req.params.id));
     if (!rec) throw AppError.notFound();
     return rec;
   });
 
   // Central error handler: map domain errors to consistent AppError shapes.
-  app.setErrorHandler((err, req: any, reply) => {
+  app.setErrorHandler((err, req, reply) => {
     let appErr: unknown = err;
     if (err instanceof InvalidKycTransition) appErr = AppError.conflict(err.message);
     else if (err instanceof KycNotFound) appErr = AppError.notFound(err.message);
     const { statusCode, body } = toErrorResponse(appErr, req.requestId);
-    if (statusCode >= 500) req.log?.error('unhandled error', { detail: (err as Error).message });
+    if (statusCode >= 500) reqLog(req)?.error('unhandled error', { detail: (err as Error).message });
     reply.code(statusCode).send(body);
   });
 

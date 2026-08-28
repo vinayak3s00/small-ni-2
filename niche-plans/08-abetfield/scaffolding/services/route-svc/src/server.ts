@@ -5,16 +5,17 @@
  * See the LICENSE file at the repository root. Contact: legal@abetworks.in
  */
 
-import Fastify, { FastifyInstance } from 'fastify';
+import Fastify, { FastifyInstance, FastifyRequest } from 'fastify';
 import { parseBearer, verifyToken, runWithPrincipal, getPrincipal, Logger } from '@abetworks/core';
 import { RouteService, GeoCheckInError } from './routes';
+import type { GeoPoint } from './geo';
 
 const JWT_SECRET = process.env.JWT_SECRET ?? 'dev-secret-change-me';
 
 export function buildServer(svc = new RouteService()): FastifyInstance {
   const app = Fastify({ logger: false });
 
-  app.addHook('onRequest', async (req: any, reply) => {
+  app.addHook('onRequest', async (req: FastifyRequest, reply) => {
     if (req.url === '/healthz') return;
     try {
       req.principal = verifyToken(parseBearer(req.headers.authorization), JWT_SECRET);
@@ -25,8 +26,8 @@ export function buildServer(svc = new RouteService()): FastifyInstance {
 
   app.get('/healthz', async () => ({ status: 'ok' }));
 
-  app.post('/v1/outlets', async (req: any, reply) =>
-    runWithPrincipal(req.principal, () => {
+  app.post<{ Body: { name?: string; location?: GeoPoint } }>('/v1/outlets', async (req, reply) =>
+    runWithPrincipal(req.principal!, () => {
       const { name, location } = req.body ?? {};
       if (!name || !location?.lat || !location?.lng) {
         return reply.code(400).send({ error: 'name and location{lat,lng} required' });
@@ -35,18 +36,20 @@ export function buildServer(svc = new RouteService()): FastifyInstance {
     }),
   );
 
-  app.post('/v1/beat-plans', async (req: any, reply) =>
-    runWithPrincipal(req.principal, () => {
-      const { repId, date, outletIds } = req.body ?? {};
-      if (!repId || !date || !Array.isArray(outletIds)) {
-        return reply.code(400).send({ error: 'repId, date, outletIds[] required' });
-      }
-      return reply.code(201).send(svc.planBeat(repId, date, outletIds));
-    }),
+  app.post<{ Body: { repId?: string; date?: string; outletIds?: string[] } }>(
+    '/v1/beat-plans',
+    async (req, reply) =>
+      runWithPrincipal(req.principal!, () => {
+        const { repId, date, outletIds } = req.body ?? {};
+        if (!repId || !date || !Array.isArray(outletIds)) {
+          return reply.code(400).send({ error: 'repId, date, outletIds[] required' });
+        }
+        return reply.code(201).send(svc.planBeat(repId, date, outletIds));
+      }),
   );
 
-  app.get('/v1/beat-plans/today', async (req: any, reply) =>
-    runWithPrincipal(req.principal, () => {
+  app.get<{ Querystring: { date?: string } }>('/v1/beat-plans/today', async (req, reply) =>
+    runWithPrincipal(req.principal!, () => {
       const repId = getPrincipal().sub;
       const date = String(req.query?.date ?? new Date().toISOString().slice(0, 10));
       const plan = svc.beatFor(repId, date);
@@ -54,8 +57,8 @@ export function buildServer(svc = new RouteService()): FastifyInstance {
     }),
   );
 
-  app.post('/v1/visits/check-in', async (req: any, reply) =>
-    runWithPrincipal(req.principal, () => {
+  app.post<{ Body: { outletId?: string; geo?: GeoPoint } }>('/v1/visits/check-in', async (req, reply) =>
+    runWithPrincipal(req.principal!, () => {
       const { outletId, geo } = req.body ?? {};
       if (!outletId || !geo?.lat || !geo?.lng) {
         return reply.code(400).send({ error: 'outletId, geo{lat,lng} required' });

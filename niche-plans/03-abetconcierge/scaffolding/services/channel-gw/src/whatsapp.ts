@@ -46,20 +46,30 @@ export interface NormalizedMessage {
   timestamp: string;
 }
 
+/** Narrow an unknown value to an indexable record without asserting `any`. */
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
+}
+
+/** Narrow an unknown value to an array of records (empty when not an array). */
+function asArray(value: unknown): Record<string, unknown>[] {
+  return Array.isArray(value) ? (value as Record<string, unknown>[]) : [];
+}
+
 /** Extract inbound text messages from a WhatsApp webhook envelope. */
-export function normalizeInbound(payload: any): NormalizedMessage[] {
+export function normalizeInbound(payload: unknown): NormalizedMessage[] {
   const out: NormalizedMessage[] = [];
-  const entries = payload?.entry ?? [];
-  for (const entry of entries) {
-    for (const change of entry?.changes ?? []) {
-      const value = change?.value ?? {};
-      for (const msg of value?.messages ?? []) {
-        if (msg?.type !== 'text') continue; // ignore non-text for this gateway
+  for (const entry of asArray(asRecord(payload).entry)) {
+    for (const change of asArray(entry.changes)) {
+      const value = asRecord(change.value);
+      for (const msg of asArray(value.messages)) {
+        if (msg.type !== 'text') continue; // ignore non-text for this gateway
+        const text = asRecord(msg.text);
         out.push({
           channel: 'whatsapp',
           from: String(msg.from ?? ''),
           messageId: String(msg.id ?? ''),
-          text: String(msg.text?.body ?? ''),
+          text: String(text.body ?? ''),
           timestamp: String(msg.timestamp ?? ''),
         });
       }

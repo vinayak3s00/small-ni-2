@@ -5,7 +5,7 @@
  * See the LICENSE file at the repository root. Contact: legal@abetworks.in
  */
 
-import Fastify, { FastifyInstance } from 'fastify';
+import Fastify, { FastifyInstance, FastifyRequest } from 'fastify';
 import {
   parseBearer,
   verifyToken,
@@ -34,7 +34,7 @@ export function buildServer(
   const app = Fastify({ logger: false });
   const meter = new MeterEmitter({ service: 'attribution-svc', sink: opts.meterSink });
 
-  app.addHook('onRequest', async (req: any, reply) => {
+  app.addHook('onRequest', async (req: FastifyRequest, reply) => {
     if (req.url === '/healthz') return;
     try {
       req.principal = verifyToken(parseBearer(req.headers.authorization), JWT_SECRET);
@@ -43,12 +43,20 @@ export function buildServer(
     }
   });
 
-  const withCtx = <T>(req: any, fn: () => Promise<T>): Promise<T> =>
-    runWithPrincipal(req.principal, fn);
+  const withCtx = <T>(req: FastifyRequest, fn: () => Promise<T>): Promise<T> =>
+    runWithPrincipal(req.principal!, fn);
 
   app.get('/healthz', async () => ({ status: 'ok' }));
 
-  app.post('/v1/attribution/events', async (req: any, reply) => {
+  app.post<{
+    Body: {
+      recordId?: string;
+      source?: string;
+      campaign?: string;
+      partnerCode?: string;
+      occurredAt?: string;
+    };
+  }>('/v1/attribution/events', async (req, reply) => {
     const { recordId, source, campaign, partnerCode, occurredAt } = req.body ?? {};
     if (!recordId || !source) {
       return reply.code(400).send({ error: 'recordId and source are required' });
@@ -63,14 +71,16 @@ export function buildServer(
     return reply.code(201).send(event);
   });
 
-  app.get('/v1/attribution/:recordId', async (req: any) =>
-    withCtx(req, async () => {
-      const model = (req.query?.model as AttributionModel) ?? 'last_touch';
-      return {
-        touches: await store.touches(req.params.recordId),
-        shares: await store.attribute(req.params.recordId, model),
-      };
-    }),
+  app.get<{ Params: { recordId: string }; Querystring: { model?: AttributionModel } }>(
+    '/v1/attribution/:recordId',
+    async (req) =>
+      withCtx(req, async () => {
+        const model = (req.query?.model as AttributionModel) ?? 'last_touch';
+        return {
+          touches: await store.touches(req.params.recordId),
+          shares: await store.attribute(req.params.recordId, model),
+        };
+      }),
   );
 
   return app;

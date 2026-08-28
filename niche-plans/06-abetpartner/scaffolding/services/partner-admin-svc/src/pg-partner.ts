@@ -17,17 +17,20 @@ import {
 } from './partner';
 
 function asRunner(client: PoolClient): QueryRunner {
-  return { query: (sql, params) => client.query(sql, params as any[]) };
+  return { query: (sql, params) => client.query(sql, params as unknown[]) };
 }
 
-function mapWorkspace(r: any): Workspace {
+/** A raw database row (column name -> value) before it is mapped to a domain type. */
+type Row = Record<string, unknown>;
+
+function mapWorkspace(r: Row): Workspace {
   return {
-    id: r.id,
-    partnerId: r.partner_id,
-    tenantId: r.tenant_id,
-    clientName: r.client_name,
-    status: r.status,
-    senderIdentity: r.sender_identity,
+    id: r.id as string,
+    partnerId: r.partner_id as string,
+    tenantId: r.tenant_id as string,
+    clientName: r.client_name as string,
+    status: r.status as Workspace['status'],
+    senderIdentity: r.sender_identity as string,
   };
 }
 
@@ -58,10 +61,11 @@ export class PgPartnerStore implements PartnerStore {
            RETURNING *`,
           [clientName, senderIdentityFor(clientName)],
         );
-        return mapWorkspace(rows[0]);
+        return mapWorkspace(rows[0] as Row);
       });
-    } catch (err: any) {
-      if (err?.code === '23505') throw new WorkspaceExistsError(clientName); // unique_violation
+    } catch (err: unknown) {
+      // unique_violation
+      if ((err as { code?: string }).code === '23505') throw new WorkspaceExistsError(clientName);
       throw err;
     }
   }
@@ -69,7 +73,7 @@ export class PgPartnerStore implements PartnerStore {
   async listWorkspaces(_partnerId: string): Promise<Workspace[]> {
     return this.tx(async (tx) => {
       const { rows } = await tx.query('SELECT * FROM workspace ORDER BY created_at');
-      return rows.map(mapWorkspace);
+      return (rows as Row[]).map(mapWorkspace);
     });
   }
 
@@ -124,8 +128,14 @@ export class PgPartnerStore implements PartnerStore {
          GROUP BY w.id, w.client_name
          ORDER BY w.client_name`,
       );
-      return rows.map((r: any) =>
-        rollupLine(r.id, r.client_name, Number(r.units), wholesalePerUnitMinor, retailPerUnitMinor),
+      return (rows as Row[]).map((r) =>
+        rollupLine(
+          r.id as string,
+          r.client_name as string,
+          Number(r.units),
+          wholesalePerUnitMinor,
+          retailPerUnitMinor,
+        ),
       );
     });
   }

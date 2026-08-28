@@ -41,7 +41,7 @@ describe('AuditChain', () => {
     await chain.append(ev('a'));
     await chain.append(ev('b'));
     // Tamper with an internal event via a cast into the private array.
-    (chain as any).events[0].entityId = 'HACKED';
+    (chain as unknown as { events: { entityId: string }[] }).events[0].entityId = 'HACKED';
     expect(await chain.verify()).toBe(false);
   });
 

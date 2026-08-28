@@ -18,8 +18,11 @@ import {
 } from './sync';
 
 function asRunner(client: PoolClient): QueryRunner {
-  return { query: (sql, params) => client.query(sql, params as any[]) };
+  return { query: (sql, params) => client.query(sql, params as unknown[]) };
 }
+
+/** A raw database row (column name -> value) before it is mapped to a domain type. */
+type Row = Record<string, unknown>;
 
 /**
  * PostgreSQL-backed offline-sync engine with a DURABLE, append-only op-log.
@@ -48,7 +51,7 @@ export class PgSyncStore implements SyncStore {
       const result: SyncResult = { applied: [], duplicates: [], conflicts: [], newOpId: '' };
 
       for (const m of mutations) {
-        const now = m.payload.updatedAt ?? new Date().toISOString();
+        const now = (m.payload.updatedAt as string | undefined) ?? new Date().toISOString();
         const rowKey = rowKeyFor(m);
 
         // Current materialized state for the decision.
@@ -56,12 +59,13 @@ export class PgSyncStore implements SyncStore {
           'SELECT data, updated_at FROM synced_row WHERE entity = $1 AND row_key = $2',
           [m.entity, rowKey],
         );
-        const existing: StoredRow | undefined = cur.rows[0]
+        const curRow = cur.rows[0] as Row | undefined;
+        const existing: StoredRow | undefined = curRow
           ? {
               id: rowKey,
               entity: m.entity,
-              data: cur.rows[0].data,
-              updatedAt: new Date(cur.rows[0].updated_at).toISOString(),
+              data: curRow.data as Record<string, unknown>,
+              updatedAt: new Date(curRow.updated_at as string).toISOString(),
             }
           : undefined;
         const decision = decide(m, existing, now);
@@ -98,7 +102,7 @@ export class PgSyncStore implements SyncStore {
 
       // The current max op sequence acts as the sync cursor.
       const cursor = await tx.query('SELECT COALESCE(MAX(seq), 0)::text AS op FROM sync_mutation');
-      result.newOpId = `op-${cursor.rows[0].op}`;
+      result.newOpId = `op-${(cursor.rows[0] as Row).op}`;
       return result;
     });
   }
@@ -109,12 +113,13 @@ export class PgSyncStore implements SyncStore {
         'SELECT data, updated_at FROM synced_row WHERE entity = $1 AND row_key = $2',
         [entity, id],
       );
-      if (!rows[0]) return undefined;
+      const row = rows[0] as Row | undefined;
+      if (!row) return undefined;
       return {
         id,
         entity,
-        data: rows[0].data,
-        updatedAt: new Date(rows[0].updated_at).toISOString(),
+        data: row.data as Record<string, unknown>,
+        updatedAt: new Date(row.updated_at as string).toISOString(),
       };
     });
   }

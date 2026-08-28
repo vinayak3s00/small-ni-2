@@ -5,7 +5,7 @@
  * See the LICENSE file at the repository root. Contact: legal@abetworks.in
  */
 
-import Fastify, { FastifyInstance } from 'fastify';
+import Fastify, { FastifyInstance, FastifyRequest } from 'fastify';
 import {
   parseBearer,
   verifyToken,
@@ -26,6 +26,12 @@ import { AuditChain, type AuditStore } from './evidence';
 
 const JWT_SECRET = process.env.JWT_SECRET ?? 'dev-secret-change-me';
 
+// The onRequest hook replaces Fastify's built-in `request.log` (Pino) with a
+// platform `Logger` child. Fastify owns the `log` decoration type, so we read
+// and write it through this narrowly-cast accessor instead of `any`.
+type RequestLog = { log: Logger };
+const reqLog = (req: FastifyRequest): Logger => (req as unknown as RequestLog).log;
+
 export interface ServerDeps {
   store?: AuditStore;
   /** Readiness probe for the datastore (e.g. `SELECT 1`); ok=true when healthy. */
@@ -40,10 +46,10 @@ export function buildServer(deps: ServerDeps = {}): FastifyInstance {
   const log = new Logger({ service: 'audit-evidence-svc' });
   const meter = new MeterEmitter({ service: 'audit-evidence-svc', sink: deps.meterSink });
 
-  app.addHook('onRequest', async (req: any, reply) => {
+  app.addHook('onRequest', async (req: FastifyRequest, reply) => {
     const requestId = requestIdFrom(req.headers['x-request-id']);
     req.requestId = requestId;
-    req.log = log.child({ requestId });
+    (req as unknown as RequestLog).log = log.child({ requestId });
     reply.header('x-request-id', requestId);
 
     if (req.url === '/healthz' || req.url === '/readyz') return;
@@ -52,13 +58,13 @@ export function buildServer(deps: ServerDeps = {}): FastifyInstance {
       req.principal = verifyToken(parseBearer(req.headers.authorization), JWT_SECRET);
     } catch (err) {
       const { statusCode, body } = toErrorResponse(AppError.unauthorized(), requestId);
-      req.log.warn('auth failed', { detail: (err as Error).message });
+      reqLog(req).warn('auth failed', { detail: (err as Error).message });
       reply.code(statusCode).send(body);
     }
   });
 
-  app.addHook('onResponse', async (req: any, reply) => {
-    req.log?.info('request', {
+  app.addHook('onResponse', async (req: FastifyRequest, reply) => {
+    reqLog(req)?.info('request', {
       method: req.method,
       url: req.url,
       status: reply.statusCode,
@@ -66,8 +72,8 @@ export function buildServer(deps: ServerDeps = {}): FastifyInstance {
     });
   });
 
-  const withCtx = <T>(req: any, fn: () => Promise<T>): Promise<T> =>
-    runWithPrincipal(req.principal, fn);
+  const withCtx = <T>(req: FastifyRequest, fn: () => Promise<T>): Promise<T> =>
+    runWithPrincipal(req.principal!, fn);
 
   const requireCompliance = () => {
     if (!hasRole('compliance_officer')) throw AppError.forbidden('compliance_officer role required');
@@ -81,7 +87,14 @@ export function buildServer(deps: ServerDeps = {}): FastifyInstance {
   });
 
   // Ingest an audit event (append-only, hash-chained, durable).
-  app.post('/v1/audit/events', async (req: any, reply) => {
+  app.post<{
+    Body: {
+      action?: AuditEvent['action'];
+      entity?: string;
+      entityId?: string;
+      fields?: string[];
+    };
+  }>('/v1/audit/events', async (req, reply) => {
     const body = req.body ?? {};
     const chained = await withCtx(req, async () => {
       const p = getPrincipal();
@@ -99,40 +112,45 @@ export function buildServer(deps: ServerDeps = {}): FastifyInstance {
       meter.count('records', { source: 'audit_event' });
       return appended;
     });
-    req.log.info('audit event appended', { seq: chained.seq, action: chained.action });
+    reqLog(req).info('audit event appended', { seq: chained.seq, action: chained.action });
     return reply.code(201).send(chained);
   });
 
   // Query audit events — compliance role only.
-  app.get('/v1/audit/events', async (req: any) =>
-    withCtx(req, () => {
-      requireCompliance();
-      const q = req.query ?? {};
-      return store.query({ from: q.from, to: q.to, action: q.action });
-    }),
+  app.get<{ Querystring: { from?: string; to?: string; action?: string } }>(
+    '/v1/audit/events',
+    async (req) =>
+      withCtx(req, () => {
+        requireCompliance();
+        const q = req.query ?? {};
+        return store.query({ from: q.from, to: q.to, action: q.action });
+      }),
   );
 
   // Generate an auditor evidence pack — compliance role only.
-  app.post('/v1/evidence/packs', async (req: any, reply) => {
-    const pack = await withCtx(req, () => {
-      requireCompliance();
-      const { period, from, to } = req.body ?? {};
-      if (!period) throw AppError.badRequest('period is required');
-      return store.generatePack(period, from ?? '2000-01-01T00:00:00Z', to ?? '2100-01-01T00:00:00Z');
-    });
-    req.log.info('evidence pack generated', { period: pack.period, eventCount: pack.eventCount });
-    return reply.code(201).send(pack);
-  });
+  app.post<{ Body: { period?: string; from?: string; to?: string } }>(
+    '/v1/evidence/packs',
+    async (req, reply) => {
+      const pack = await withCtx(req, () => {
+        requireCompliance();
+        const { period, from, to } = req.body ?? {};
+        if (!period) throw AppError.badRequest('period is required');
+        return store.generatePack(period, from ?? '2000-01-01T00:00:00Z', to ?? '2100-01-01T00:00:00Z');
+      });
+      reqLog(req).info('evidence pack generated', { period: pack.period, eventCount: pack.eventCount });
+      return reply.code(201).send(pack);
+    },
+  );
 
   // Integrity endpoint: verify the chain has not been tampered with.
-  app.get('/v1/audit/verify', async (req: any) =>
+  app.get('/v1/audit/verify', async (req) =>
     withCtx(req, async () => ({ intact: await store.verify() })),
   );
 
   // Central error handler: consistent shapes; internal details stay in logs.
-  app.setErrorHandler((err, req: any, reply) => {
+  app.setErrorHandler((err, req, reply) => {
     const { statusCode, body } = toErrorResponse(err, req.requestId);
-    if (statusCode >= 500) req.log?.error('unhandled error', { detail: (err as Error).message });
+    if (statusCode >= 500) reqLog(req)?.error('unhandled error', { detail: (err as Error).message });
     reply.code(statusCode).send(body);
   });
 

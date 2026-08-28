@@ -5,7 +5,7 @@
  * See the LICENSE file at the repository root. Contact: legal@abetworks.in
  */
 
-import Fastify, { FastifyInstance } from 'fastify';
+import Fastify, { FastifyInstance, FastifyRequest } from 'fastify';
 import { Logger } from '@abetworks/core';
 import { normalizeInbound, verifyChallenge, verifySignature } from './whatsapp';
 
@@ -21,7 +21,7 @@ export function buildServer(onMessage?: (m: unknown) => void): FastifyInstance {
     { parseAs: 'string' },
     (_req, body: string, done) => {
       try {
-        (_req as any).rawBody = body;
+        _req.rawBody = body;
         done(null, body.length ? JSON.parse(body) : {});
       } catch (err) {
         done(err as Error, undefined);
@@ -32,12 +32,13 @@ export function buildServer(onMessage?: (m: unknown) => void): FastifyInstance {
   app.get('/healthz', async () => ({ status: 'ok' }));
 
   // Meta webhook verification handshake.
-  app.get('/v1/webhooks/whatsapp', async (req: any, reply) => {
+  app.get('/v1/webhooks/whatsapp', async (req: FastifyRequest, reply) => {
+    const query = (req.query ?? {}) as Record<string, string | undefined>;
     const challenge = verifyChallenge(
       {
-        mode: req.query['hub.mode'],
-        token: req.query['hub.verify_token'],
-        challenge: req.query['hub.challenge'],
+        mode: query['hub.mode'],
+        token: query['hub.verify_token'],
+        challenge: query['hub.challenge'],
       },
       VERIFY_TOKEN,
     );
@@ -46,8 +47,9 @@ export function buildServer(onMessage?: (m: unknown) => void): FastifyInstance {
   });
 
   // Inbound messages — signature-checked, then normalized.
-  app.post('/v1/webhooks/whatsapp', async (req: any, reply) => {
-    const ok = verifySignature(req.rawBody ?? '', req.headers['x-hub-signature-256'], APP_SECRET);
+  app.post('/v1/webhooks/whatsapp', async (req: FastifyRequest, reply) => {
+    const sig = req.headers['x-hub-signature-256'];
+    const ok = verifySignature(req.rawBody ?? '', Array.isArray(sig) ? sig[0] : sig, APP_SECRET);
     if (!ok) return reply.code(401).send({ error: 'invalid signature' });
     const messages = normalizeInbound(req.body);
     for (const m of messages) onMessage?.(m);

@@ -5,7 +5,7 @@
  * See the LICENSE file at the repository root. Contact: legal@abetworks.in
  */
 
-import Fastify, { FastifyInstance } from 'fastify';
+import Fastify, { FastifyInstance, FastifyRequest } from 'fastify';
 import {
   parseBearer,
   verifyToken,
@@ -27,7 +27,7 @@ export function buildServer(store: SyncStore = new SyncEngine(), opts: ServerOpt
   const app = Fastify({ logger: false });
   const meter = new MeterEmitter({ service: 'sync-gateway', sink: opts.meterSink });
 
-  app.addHook('onRequest', async (req: any, reply) => {
+  app.addHook('onRequest', async (req: FastifyRequest, reply) => {
     if (req.url === '/healthz') return;
     try {
       req.principal = verifyToken(parseBearer(req.headers.authorization), JWT_SECRET);
@@ -36,13 +36,13 @@ export function buildServer(store: SyncStore = new SyncEngine(), opts: ServerOpt
     }
   });
 
-  const withCtx = <T>(req: any, fn: () => Promise<T>): Promise<T> =>
-    runWithPrincipal(req.principal, fn);
+  const withCtx = <T>(req: FastifyRequest, fn: () => Promise<T>): Promise<T> =>
+    runWithPrincipal(req.principal!, fn);
 
   app.get('/healthz', async () => ({ status: 'ok' }));
 
   // Push offline-captured mutations (idempotent) and receive an op cursor.
-  app.post('/v1/sync', async (req: any, reply) => {
+  app.post<{ Body: { mutations?: Mutation[] } }>('/v1/sync', async (req, reply) => {
     const mutations: Mutation[] = req.body?.mutations ?? [];
     if (!Array.isArray(mutations)) {
       return reply.code(400).send({ error: 'mutations[] required' });
@@ -57,7 +57,9 @@ export function buildServer(store: SyncStore = new SyncEngine(), opts: ServerOpt
   });
 
   // Geo-verified check-in convenience endpoint (creates a visit mutation).
-  app.post('/v1/visits/check-in', async (req: any, reply) => {
+  app.post<{
+    Body: { outletId?: string; geo?: { lat: number; lng: number }; clientMutationId?: string };
+  }>('/v1/visits/check-in', async (req, reply) => {
     const { outletId, geo, clientMutationId } = req.body ?? {};
     if (!outletId || !geo?.lat || !geo?.lng || !clientMutationId) {
       return reply.code(400).send({ error: 'outletId, geo{lat,lng}, clientMutationId required' });

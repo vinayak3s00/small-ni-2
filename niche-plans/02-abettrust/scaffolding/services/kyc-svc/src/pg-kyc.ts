@@ -18,8 +18,11 @@ import {
 } from './kyc';
 
 function asRunner(client: PoolClient): QueryRunner {
-  return { query: (sql, params) => client.query(sql, params as any[]) };
+  return { query: (sql, params) => client.query(sql, params as unknown[]) };
 }
+
+/** A raw database row (column name -> value) before it is mapped to a domain type. */
+type Row = Record<string, unknown>;
 
 /**
  * PostgreSQL-backed KYC store. Every operation runs in withTenantScope() so
@@ -49,23 +52,23 @@ export class PgKycStore implements KycStore {
   private async hydrate(tx: QueryRunner, id: string): Promise<KycRecord | undefined> {
     const { rows } = await tx.query('SELECT * FROM kyc_record WHERE id = $1', [id]);
     if (!rows[0]) return undefined;
-    const r = rows[0];
+    const r = rows[0] as Row;
     const { rows: trail } = await tx.query(
       'SELECT actor, kind, detail, at FROM kyc_trail WHERE kyc_id = $1 ORDER BY id',
       [id],
     );
     return {
-      id: r.id,
-      tenantId: r.tenant_id,
-      partyId: r.party_id,
-      status: r.status,
-      documents: r.documents ?? [],
-      disclosures: r.disclosures ?? [],
-      trail: trail.map((t: any) => ({
-        actor: t.actor,
-        kind: t.kind,
-        detail: t.detail,
-        at: new Date(t.at).toISOString(),
+      id: r.id as string,
+      tenantId: r.tenant_id as string,
+      partyId: r.party_id as string,
+      status: r.status as KycStatus,
+      documents: (r.documents as string[] | null) ?? [],
+      disclosures: (r.disclosures as string[] | null) ?? [],
+      trail: (trail as Row[]).map((t) => ({
+        actor: t.actor as string,
+        kind: t.kind as TrailEntry['kind'],
+        detail: t.detail as string,
+        at: new Date(t.at as string).toISOString(),
       })),
     };
   }
@@ -78,7 +81,7 @@ export class PgKycStore implements KycStore {
          RETURNING id`,
         [partyId, documents],
       );
-      const id = rows[0].id;
+      const id = (rows[0] as Row).id as string;
       await this.trail(tx, id, 'status_change', 'created as pending');
       return (await this.hydrate(tx, id))!;
     });
@@ -88,7 +91,7 @@ export class PgKycStore implements KycStore {
     return this.tx(async (tx) => {
       const { rows } = await tx.query('SELECT status FROM kyc_record WHERE id = $1 FOR UPDATE', [id]);
       if (!rows[0]) throw new KycNotFound(id);
-      const from = rows[0].status as KycStatus;
+      const from = (rows[0] as Row).status as KycStatus;
       if (!TRANSITIONS[from].includes(to)) throw new InvalidKycTransition(from, to);
 
       await tx.query('UPDATE kyc_record SET status = $2, updated_at = now() WHERE id = $1', [id, to]);
@@ -117,7 +120,7 @@ export class PgKycStore implements KycStore {
          FROM kyc_record WHERE id = $1`,
         [id],
       );
-      return !!rows[0]?.complete;
+      return !!(rows[0] as Row | undefined)?.complete;
     });
   }
 

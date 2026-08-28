@@ -5,9 +5,9 @@
  * See the LICENSE file at the repository root. Contact: legal@abetworks.in
  */
 
-import Fastify, { FastifyInstance } from 'fastify';
+import Fastify, { FastifyInstance, FastifyRequest } from 'fastify';
 import { parseBearer, verifyToken, runWithPrincipal, getPrincipal, Logger } from '@abetworks/core';
-import { buildQuote, UnknownSkuError, type CatalogItem } from './quoting';
+import { buildQuote, UnknownSkuError, type CatalogItem, type QuoteLineInput } from './quoting';
 import { InMemoryOptInStore, guardOutbound } from './optin';
 
 const JWT_SECRET = process.env.JWT_SECRET ?? 'dev-secret-change-me';
@@ -24,7 +24,7 @@ export function buildServer(
 ): FastifyInstance {
   const app = Fastify({ logger: false });
 
-  app.addHook('onRequest', async (req: any, reply) => {
+  app.addHook('onRequest', async (req: FastifyRequest, reply) => {
     if (req.url === '/healthz' || req.url === '/v1/webhooks/whatsapp') return;
     try {
       req.principal = verifyToken(parseBearer(req.headers.authorization), JWT_SECRET);
@@ -38,8 +38,8 @@ export function buildServer(
   // WhatsApp verification handshake / inbound (public webhook).
   app.post('/v1/webhooks/whatsapp', async () => ({ status: 'received' }));
 
-  app.post('/v1/quotes', async (req: any, reply) =>
-    runWithPrincipal(req.principal, () => {
+  app.post<{ Body: { currency?: string; items?: QuoteLineInput[] } }>('/v1/quotes', async (req, reply) =>
+    runWithPrincipal(req.principal!, () => {
       const { currency, items } = req.body ?? {};
       if (!currency || !Array.isArray(items)) {
         return reply.code(400).send({ error: 'currency and items[] are required' });
@@ -57,8 +57,8 @@ export function buildServer(
   );
 
   // Outbound send guard: opt-in + template quality.
-  app.post('/v1/outbound/guard', async (req: any, reply) =>
-    runWithPrincipal(req.principal, () => {
+  app.post<{ Body: { partyId?: string; templateBody?: string } }>('/v1/outbound/guard', async (req, reply) =>
+    runWithPrincipal(req.principal!, () => {
       const p = getPrincipal();
       const { partyId, templateBody } = req.body ?? {};
       if (!partyId || !templateBody) {

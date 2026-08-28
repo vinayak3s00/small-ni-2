@@ -5,7 +5,7 @@
  * See the LICENSE file at the repository root. Contact: legal@abetworks.in
  */
 
-import Fastify, { FastifyInstance } from 'fastify';
+import Fastify, { FastifyInstance, FastifyRequest } from 'fastify';
 import { parseBearer, verifyToken, runWithPrincipal, Logger } from '@abetworks/core';
 import { CallService, InMemoryDnd, DndBlockedError, type DndRegistry } from './calls';
 
@@ -15,7 +15,7 @@ export function buildServer(dnd: DndRegistry = new InMemoryDnd()): FastifyInstan
   const app = Fastify({ logger: false });
   const calls = new CallService(dnd);
 
-  app.addHook('onRequest', async (req: any, reply) => {
+  app.addHook('onRequest', async (req: FastifyRequest, reply) => {
     if (req.url === '/healthz' || req.url === '/v1/webhooks/telephony') return;
     try {
       req.principal = verifyToken(parseBearer(req.headers.authorization), JWT_SECRET);
@@ -27,8 +27,10 @@ export function buildServer(dnd: DndRegistry = new InMemoryDnd()): FastifyInstan
   app.get('/healthz', async () => ({ status: 'ok' }));
   app.post('/v1/webhooks/telephony', async () => ({ status: 'received' }));
 
-  app.post('/v1/calls/outbound', async (req: any, reply) =>
-    runWithPrincipal(req.principal, () => {
+  app.post<{
+    Body: { recordId?: string; toE164?: string; language?: string; purpose?: string };
+  }>('/v1/calls/outbound', async (req, reply) =>
+    runWithPrincipal(req.principal!, () => {
       const { recordId, toE164, language, purpose } = req.body ?? {};
       if (!recordId || !toE164 || !language || !purpose) {
         return reply
@@ -47,8 +49,11 @@ export function buildServer(dnd: DndRegistry = new InMemoryDnd()): FastifyInstan
     }),
   );
 
-  app.post('/v1/calls/:id/complete', async (req: any, reply) =>
-    runWithPrincipal(req.principal, () => {
+  app.post<{
+    Params: { id: string };
+    Body: { transcript?: string; intents?: string[]; citations?: string[] };
+  }>('/v1/calls/:id/complete', async (req, reply) =>
+    runWithPrincipal(req.principal!, () => {
       const { transcript, intents, citations } = req.body ?? {};
       try {
         const summary = calls.complete(
@@ -64,8 +69,8 @@ export function buildServer(dnd: DndRegistry = new InMemoryDnd()): FastifyInstan
     }),
   );
 
-  app.get('/v1/calls/:id/summary', async (req: any, reply) =>
-    runWithPrincipal(req.principal, () => {
+  app.get<{ Params: { id: string } }>('/v1/calls/:id/summary', async (req, reply) =>
+    runWithPrincipal(req.principal!, () => {
       const summary = calls.getSummary(req.params.id);
       return summary
         ? reply.send(summary)

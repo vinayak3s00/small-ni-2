@@ -5,7 +5,7 @@
  * See the LICENSE file at the repository root. Contact: legal@abetworks.in
  */
 
-import Fastify, { FastifyInstance } from 'fastify';
+import Fastify, { FastifyInstance, FastifyRequest } from 'fastify';
 import {
   parseBearer,
   verifyToken,
@@ -19,6 +19,7 @@ import {
   InsufficientStockError,
   UnknownSkuError,
   type OrderStore,
+  type OrderLineInput,
 } from './orders';
 
 const JWT_SECRET = process.env.JWT_SECRET ?? 'dev-secret-change-me';
@@ -32,7 +33,7 @@ export function buildServer(store: OrderStore = new InMemoryOrderStore(), opts: 
   const app = Fastify({ logger: false });
   const meter = new MeterEmitter({ service: 'order-svc', sink: opts.meterSink });
 
-  app.addHook('onRequest', async (req: any, reply) => {
+  app.addHook('onRequest', async (req: FastifyRequest, reply) => {
     if (req.url === '/healthz') return;
     try {
       req.principal = verifyToken(parseBearer(req.headers.authorization), JWT_SECRET);
@@ -41,13 +42,15 @@ export function buildServer(store: OrderStore = new InMemoryOrderStore(), opts: 
     }
   });
 
-  const withCtx = <T>(req: any, fn: () => Promise<T>): Promise<T> =>
-    runWithPrincipal(req.principal, fn);
+  const withCtx = <T>(req: FastifyRequest, fn: () => Promise<T>): Promise<T> =>
+    runWithPrincipal(req.principal!, fn);
 
   app.get('/healthz', async () => ({ status: 'ok' }));
 
   // Seed / upsert a catalog item + its stock (admin/demo convenience).
-  app.post('/v1/catalog', async (req: any, reply) => {
+  app.post<{
+    Body: { sku?: string; name?: string; priceMinor?: number; gstRate?: number; stock?: number };
+  }>('/v1/catalog', async (req, reply) => {
     const { sku, name, priceMinor, gstRate, stock } = req.body ?? {};
     if (!sku || !name || priceMinor == null) {
       return reply.code(400).send({ error: 'sku, name, priceMinor required' });
@@ -58,11 +61,13 @@ export function buildServer(store: OrderStore = new InMemoryOrderStore(), opts: 
     return reply.code(204).send();
   });
 
-  app.get('/v1/stock/:sku', async (req: any) =>
+  app.get<{ Params: { sku: string } }>('/v1/stock/:sku', async (req) =>
     withCtx(req, async () => ({ sku: req.params.sku, qty: await store.stockOf(req.params.sku) })),
   );
 
-  app.post('/v1/orders', async (req: any, reply) => {
+  app.post<{
+    Body: { clientOrderId?: string; outletId?: string; currency?: string; lines?: OrderLineInput[] };
+  }>('/v1/orders', async (req, reply) => {
     const { clientOrderId, outletId, currency, lines } = req.body ?? {};
     if (!clientOrderId || !outletId || !currency || !Array.isArray(lines)) {
       return reply.code(400).send({ error: 'clientOrderId, outletId, currency, lines[] required' });
