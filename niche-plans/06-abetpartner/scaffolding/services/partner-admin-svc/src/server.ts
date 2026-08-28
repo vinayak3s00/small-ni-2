@@ -6,14 +6,27 @@
  */
 
 import Fastify, { FastifyInstance } from 'fastify';
-import { parseBearer, verifyToken, runWithPrincipal, getPrincipal } from '@abetworks/core';
+import {
+  parseBearer,
+  verifyToken,
+  runWithPrincipal,
+  getPrincipal,
+  MeterEmitter,
+  type MeterSink,
+} from '@abetworks/core';
 import { InMemoryPartnerStore, WorkspaceExistsError, type PartnerStore } from './partner';
 
 const JWT_SECRET = process.env.JWT_SECRET ?? 'dev-secret-change-me';
 
+export interface ServerOptions {
+  /** Optional meter sink (tests inject in-memory; prod uses default log/Kafka sink). */
+  meterSink?: MeterSink;
+}
+
 /** For AbetPartner the principal's tenantId is the partner (agency) id. */
-export function buildServer(store: PartnerStore = new InMemoryPartnerStore()): FastifyInstance {
+export function buildServer(store: PartnerStore = new InMemoryPartnerStore(), opts: ServerOptions = {}): FastifyInstance {
   const app = Fastify({ logger: false });
+  const meter = new MeterEmitter({ service: 'partner-admin-svc', sink: opts.meterSink });
 
   app.addHook('onRequest', async (req: any, reply) => {
     if (req.url === '/healthz') return;
@@ -33,7 +46,12 @@ export function buildServer(store: PartnerStore = new InMemoryPartnerStore()): F
     const { clientName } = req.body ?? {};
     if (!clientName) return reply.code(400).send({ error: 'clientName is required' });
     try {
-      const ws = await withCtx(req, (pid) => store.provision(pid, clientName));
+      const ws = await withCtx(req, async (pid) => {
+        const provisioned = await store.provision(pid, clientName);
+        // Billable usage: one "records" unit per client workspace provisioned.
+        meter.count('records', { eventId: provisioned.id, source: 'workspace' });
+        return provisioned;
+      });
       return reply.code(201).send(ws);
     } catch (err) {
       if (err instanceof WorkspaceExistsError) return reply.code(409).send({ error: err.message });

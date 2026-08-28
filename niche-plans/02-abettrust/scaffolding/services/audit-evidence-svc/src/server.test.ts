@@ -7,6 +7,7 @@
 
 import { describe, it, expect, beforeAll } from 'vitest';
 import jwt from 'jsonwebtoken';
+import { InMemoryMeterSink } from '@abetworks/core';
 import { buildServer } from './server';
 
 const SECRET = 'dev-secret-change-me';
@@ -70,5 +71,23 @@ describe('audit-evidence-svc API (observability)', () => {
     const res = await app.inject({ method: 'GET', url: '/v1/audit/verify' });
     expect(res.statusCode).toBe(401);
     expect(res.json().error).toMatchObject({ code: 'unauthorized' });
+  });
+
+  it('emits a billable "records" meter event per audit event appended', async () => {
+    const meterSink = new InMemoryMeterSink();
+    const metered = buildServer({ meterSink: meterSink.sink });
+    const res = await metered.inject({
+      method: 'POST',
+      url: '/v1/audit/events',
+      headers: { authorization: `Bearer ${token(['compliance_officer'])}` },
+      payload: { action: 'export', entity: 'kyc_record', entityId: 'k-1' },
+    });
+    expect(res.statusCode).toBe(201);
+    expect(meterSink.events).toHaveLength(1);
+    expect(meterSink.events[0]).toMatchObject({
+      tenantId: 'tenant-a',
+      meter: 'records',
+      service: 'audit-evidence-svc',
+    });
   });
 });
