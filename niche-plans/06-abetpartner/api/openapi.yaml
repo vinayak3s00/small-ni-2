@@ -25,10 +25,36 @@ paths:
     get:
       summary: List client workspaces
       responses: { '200': { description: OK } }
-  /branding:
-    put:
-      summary: Set white-label branding (domain, logo, theme, email identity)
-      responses: { '200': { description: OK } }
+  /workspaces/{id}/grant:
+    post:
+      summary: Grant a role/scope on a workspace
+      parameters: [ { name: id, in: path, required: true, schema: { type: string } } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [principal, role]
+              properties:
+                principal: { type: string }
+                role: { type: string }
+      responses: { '200': { description: Granted } }
+  /workspaces/{id}/usage:
+    post:
+      summary: Record a metered usage event for a workspace
+      parameters: [ { name: id, in: path, required: true, schema: { type: string } } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [metric, quantity]
+              properties:
+                metric: { type: string }
+                quantity: { type: number }
+      responses: { '202': { description: Recorded } }
   /billing/rollup:
     get:
       summary: Per-workspace usage + partner margin

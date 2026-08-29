@@ -9,21 +9,40 @@ security:
   - bearerAuth: []
 paths:
   /webhooks/whatsapp:
+    get:
+      summary: WhatsApp webhook verification handshake (BSP)
+      parameters:
+        - { name: hub.mode, in: query, schema: { type: string } }
+        - { name: hub.challenge, in: query, schema: { type: string } }
+        - { name: hub.verify_token, in: query, schema: { type: string } }
+      responses: { '200': { description: Challenge echoed } }
     post:
       summary: Inbound WhatsApp webhook (BSP)
       responses: { '200': { description: Ack } }
-  /conversations/{id}/reply:
+  /inbound:
     post:
-      summary: Agent reply (cited, or escalate to human)
-      parameters: [ { name: id, in: path, required: true, schema: { type: string } } ]
+      summary: Route an inbound message to the concierge agent (cited answers only)
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              properties: { body: { type: string } }
-      responses: { '200': { description: OK } }
+              required: [conversationId, body]
+              properties:
+                conversationId: { type: string }
+                body: { type: string }
+      responses:
+        '200':
+          description: Agent reply with citations or escalation
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  reply: { type: string }
+                  citations: { type: array, items: { type: string } }
+                  escalated: { type: boolean }
   /quotes:
     post:
       summary: Generate a GST-aware, multi-currency quote
@@ -56,10 +75,29 @@ paths:
                   gstMinor: { type: integer }
                   totalMinor: { type: integer }
                   currency: { type: string }
-  /graduate:
+  /outbound/guard:
     post:
-      summary: Promote tenant from concierge tier into the full suite (no migration)
-      responses: { '202': { description: Promotion started } }
+      summary: Guard an outbound message against consent/policy before send
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [recordId, body]
+              properties:
+                recordId: { type: string, format: uuid }
+                body: { type: string }
+      responses:
+        '200':
+          description: Guard decision
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  allowed: { type: boolean }
+                  reasons: { type: array, items: { type: string } }
 components:
   securitySchemes:
     bearerAuth: { type: http, scheme: bearer, bearerFormat: JWT }

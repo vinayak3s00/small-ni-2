@@ -12,10 +12,24 @@ paths:
     post:
       summary: Inbound order/fulfilment webhook (Shopify/Woo/marketplace)
       responses: { '200': { description: Ack } }
-  /journeys/{id}/enroll:
+  /journey/event:
+    post:
+      summary: Ingest a journey lifecycle event
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [type]
+              properties:
+                type: { type: string }
+                partyId: { type: string, format: uuid }
+                payload: { type: object }
+      responses: { '202': { description: Accepted } }
+  /journeys/enroll:
     post:
       summary: Enroll a customer into a post-purchase/retention journey
-      parameters: [ { name: id, in: path, required: true, schema: { type: string } } ]
       requestBody:
         required: true
         content:
@@ -24,9 +38,9 @@ paths:
               type: object
               properties: { partyId: { type: string, format: uuid } }
       responses: { '202': { description: Enrolled } }
-  /support/tickets:
+  /support/resolve:
     post:
-      summary: Open/resolve an order-support ticket (WISMO/return/exchange)
+      summary: Resolve an order-support request (WISMO/return/exchange)
       requestBody:
         required: true
         content:

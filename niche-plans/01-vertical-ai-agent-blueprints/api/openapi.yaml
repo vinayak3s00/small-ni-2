@@ -27,10 +27,18 @@ paths:
         - { name: minScore, in: query, schema: { type: integer } }
       responses:
         '200': { description: OK }
-  /records/{id}/score:
-    get:
+  /score:
+    post:
       summary: Get explainable score with reason codes
-      parameters: [ { name: id, in: path, required: true, schema: { type: string, format: uuid } } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [recordId]
+              properties:
+                recordId: { type: string, format: uuid }
       responses:
         '200':
           description: OK
@@ -61,7 +69,7 @@ paths:
       responses:
         '201': { description: Booked }
         '409': { description: Slot no longer available }
-  /agent/messages:
+  /agent/answer:
     post:
       summary: Send an inbound message to the vertical agent (cited answers only)
       requestBody:
@@ -85,6 +93,37 @@ paths:
                   reply: { type: string }
                   citations: { type: array, items: { type: string } }
                   escalated: { type: boolean }
+  /attribution/events:
+    post:
+      summary: Record a marketing/attribution event for a lead
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [recordId, type]
+              properties:
+                recordId: { type: string, format: uuid }
+                type: { type: string }
+                source: { type: string }
+                occurredAt: { type: string, format: date-time }
+      responses:
+        '202': { description: Event recorded }
+  /attribution/{recordId}:
+    get:
+      summary: Get the attribution timeline for a record
+      parameters: [ { name: recordId, in: path, required: true, schema: { type: string, format: uuid } } ]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  recordId: { type: string, format: uuid }
+                  events: { type: array, items: { type: object } }
 components:
   securitySchemes:
     bearerAuth: { type: http, scheme: bearer, bearerFormat: JWT }

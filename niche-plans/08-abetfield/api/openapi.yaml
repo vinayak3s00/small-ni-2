@@ -43,9 +43,75 @@ paths:
                   deltas: { type: array, items: { type: object } }
                   newOpId: { type: string }
   /beat-plans:
+    post:
+      summary: Create a beat plan for a rep
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [repId, outlets]
+              properties:
+                repId: { type: string }
+                outlets: { type: array, items: { type: string } }
+      responses: { '201': { description: Created } }
+  /beat-plans/today:
     get:
       summary: Get today's beat plan for the rep
       responses: { '200': { description: OK } }
+  /catalog:
+    post:
+      summary: Upsert catalog items (SKUs, prices)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [items]
+              properties:
+                items: { type: array, items: { type: object } }
+      responses: { '200': { description: Applied } }
+  /stock/{sku}:
+    get:
+      summary: Get current stock position for a SKU
+      parameters: [ { name: sku, in: path, required: true, schema: { type: string } } ]
+      responses: { '200': { description: OK } }
+  /orders:
+    post:
+      summary: Place a field order
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [outletId, lines]
+              properties:
+                outletId: { type: string, format: uuid }
+                lines:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      sku: { type: string }
+                      qty: { type: integer }
+      responses: { '201': { description: Created } }
+  /outlets:
+    post:
+      summary: Register a new outlet
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, geo]
+              properties:
+                name: { type: string }
+                geo: { type: object, properties: { lat: { type: number }, lng: { type: number } } }
+      responses: { '201': { description: Created } }
   /visits/check-in:
     post:
       summary: Geo-verified outlet check-in

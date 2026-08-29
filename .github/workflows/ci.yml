@@ -41,7 +41,7 @@ jobs:
           echo "rendered abet-gateway"
 
   openapi:
-    name: OpenAPI spec + gateway drift check
+    name: OpenAPI spec + gateway + per-product drift check
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -49,12 +49,13 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "22"
-      - name: Validate spec and gateway-route coverage
+      - name: Validate spec, gateway-route coverage, and per-product spec drift
         run: |
           set -euo pipefail
           cd platform/api-tools
           npm install && npm run build && npm test
-          # check.js resolves paths from the repo root (its cwd).
+          # check.js resolves paths from the repo root (its cwd). It runs the
+          # aggregated gateway drift check AND the 8 per-product spec drift checks.
           cd "$GITHUB_WORKSPACE" && node platform/api-tools/dist/check.js
 
   python-lint:
