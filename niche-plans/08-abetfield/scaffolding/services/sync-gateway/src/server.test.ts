@@ -23,6 +23,22 @@ const mutation = (cmid: string) => ({
   payload: { id: 'o1', updatedAt: '2026-06-01T10:00:00Z', totalMinor: 5000 },
 });
 
+describe('sync-gateway readiness', () => {
+  it('serves readiness as ok when the db ping passes', async () => {
+    const app = buildServer(new SyncEngine());
+    const ready = await app.inject({ method: 'GET', url: '/readyz' });
+    expect(ready.statusCode).toBe(200);
+    expect(ready.json()).toMatchObject({ status: 'ok', checks: { db: 'ok' } });
+  });
+
+  it('reports 503 from readiness when the db ping fails', async () => {
+    const app = buildServer(new SyncEngine(), { dbPing: () => false });
+    const ready = await app.inject({ method: 'GET', url: '/readyz' });
+    expect(ready.statusCode).toBe(503);
+    expect(ready.json()).toMatchObject({ status: 'degraded', checks: { db: 'fail' } });
+  });
+});
+
 describe('sync-gateway metering', () => {
   it('bills one "records" unit per newly-applied mutation, not for duplicates', async () => {
     const meterSink = new InMemoryMeterSink();

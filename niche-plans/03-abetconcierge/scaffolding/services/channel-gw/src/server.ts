@@ -6,7 +6,7 @@
  */
 
 import Fastify, { FastifyInstance, FastifyRequest } from 'fastify';
-import { Logger, requireSecret } from '@abetworks/core';
+import { Logger, requireSecret, readiness } from '@abetworks/core';
 import { normalizeInbound, verifyChallenge, verifySignature } from './whatsapp';
 
 const VERIFY_TOKEN = requireSecret('WA_VERIFY_TOKEN', { devDefault: 'dev-verify-token' });
@@ -30,6 +30,10 @@ export function buildServer(onMessage?: (m: unknown) => void): FastifyInstance {
   );
 
   app.get('/healthz', async () => ({ status: 'ok' }));
+  app.get('/readyz', async (_req, reply) => {
+    const report = await readiness({});
+    return reply.code(report.status === 'ok' ? 200 : 503).send(report);
+  });
 
   // Meta webhook verification handshake.
   app.get('/v1/webhooks/whatsapp', async (req: FastifyRequest, reply) => {

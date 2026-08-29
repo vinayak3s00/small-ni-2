@@ -6,7 +6,7 @@
  */
 
 import Fastify, { FastifyInstance, FastifyRequest } from 'fastify';
-import { parseBearer, verifyToken, runWithPrincipal, getPrincipal, Logger, requireSecret } from '@abetworks/core';
+import { parseBearer, verifyToken, runWithPrincipal, getPrincipal, Logger, requireSecret, readiness } from '@abetworks/core';
 import { buildQuote, UnknownSkuError, type CatalogItem, type QuoteLineInput } from './quoting';
 import { InMemoryOptInStore, guardOutbound } from './optin';
 
@@ -25,7 +25,7 @@ export function buildServer(
   const app = Fastify({ logger: false });
 
   app.addHook('onRequest', async (req: FastifyRequest, reply) => {
-    if (req.url === '/healthz' || req.url === '/v1/webhooks/whatsapp') return;
+    if (req.url === '/healthz' || req.url === '/readyz' || req.url === '/v1/webhooks/whatsapp') return;
     try {
       req.principal = verifyToken(parseBearer(req.headers.authorization), JWT_SECRET);
     } catch (err) {
@@ -34,6 +34,10 @@ export function buildServer(
   });
 
   app.get('/healthz', async () => ({ status: 'ok' }));
+  app.get('/readyz', async (_req, reply) => {
+    const report = await readiness({});
+    return reply.code(report.status === 'ok' ? 200 : 503).send(report);
+  });
 
   // WhatsApp verification handshake / inbound (public webhook).
   app.post('/v1/webhooks/whatsapp', async () => ({ status: 'received' }));

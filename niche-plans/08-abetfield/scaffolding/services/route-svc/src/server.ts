@@ -6,7 +6,7 @@
  */
 
 import Fastify, { FastifyInstance, FastifyRequest } from 'fastify';
-import { parseBearer, verifyToken, runWithPrincipal, getPrincipal, Logger, requireSecret } from '@abetworks/core';
+import { parseBearer, verifyToken, runWithPrincipal, getPrincipal, Logger, requireSecret, readiness } from '@abetworks/core';
 import { RouteService, GeoCheckInError } from './routes';
 import type { GeoPoint } from './geo';
 
@@ -16,7 +16,7 @@ export function buildServer(svc = new RouteService()): FastifyInstance {
   const app = Fastify({ logger: false });
 
   app.addHook('onRequest', async (req: FastifyRequest, reply) => {
-    if (req.url === '/healthz') return;
+    if (req.url === '/healthz' || req.url === '/readyz') return;
     try {
       req.principal = verifyToken(parseBearer(req.headers.authorization), JWT_SECRET);
     } catch (err) {
@@ -25,6 +25,10 @@ export function buildServer(svc = new RouteService()): FastifyInstance {
   });
 
   app.get('/healthz', async () => ({ status: 'ok' }));
+  app.get('/readyz', async (_req, reply) => {
+    const report = await readiness({});
+    return reply.code(report.status === 'ok' ? 200 : 503).send(report);
+  });
 
   app.post<{ Body: { name?: string; location?: GeoPoint } }>('/v1/outlets', async (req, reply) =>
     runWithPrincipal(req.principal!, () => {

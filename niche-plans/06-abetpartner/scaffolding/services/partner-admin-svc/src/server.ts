@@ -11,8 +11,10 @@ import {
   verifyToken,
   runWithPrincipal,
   getPrincipal,
+  readiness,
   MeterEmitter,
   Logger,
+  type ReadinessCheck,
   type MeterSink,
   requireSecret,
 } from '@abetworks/core';
@@ -21,6 +23,8 @@ import { InMemoryPartnerStore, WorkspaceExistsError, type PartnerStore } from '.
 const JWT_SECRET = requireSecret('JWT_SECRET', { devDefault: 'dev-secret-change-me' });
 
 export interface ServerOptions {
+  /** Readiness probe for the datastore (e.g. `SELECT 1`); ok=true when healthy. */
+  dbPing?: ReadinessCheck;
   /** Optional meter sink (tests inject in-memory; prod uses default log/Kafka sink). */
   meterSink?: MeterSink;
 }
@@ -31,7 +35,7 @@ export function buildServer(store: PartnerStore = new InMemoryPartnerStore(), op
   const meter = new MeterEmitter({ service: 'partner-admin-svc', sink: opts.meterSink });
 
   app.addHook('onRequest', async (req: FastifyRequest, reply) => {
-    if (req.url === '/healthz') return;
+    if (req.url === '/healthz' || req.url === '/readyz') return;
     try {
       req.principal = verifyToken(parseBearer(req.headers.authorization), JWT_SECRET);
     } catch (err) {
@@ -43,6 +47,11 @@ export function buildServer(store: PartnerStore = new InMemoryPartnerStore(), op
     runWithPrincipal(req.principal!, () => fn(getPrincipal().tenantId));
 
   app.get('/healthz', async () => ({ status: 'ok' }));
+
+  app.get('/readyz', async (_req, reply) => {
+    const report = await readiness({ db: opts.dbPing ?? (() => true) });
+    return reply.code(report.status === 'ok' ? 200 : 503).send(report);
+  });
 
   app.post<{ Body: { clientName?: string } }>('/v1/workspaces', async (req, reply) => {
     const { clientName } = req.body ?? {};
@@ -84,20 +93,32 @@ export function buildServer(store: PartnerStore = new InMemoryPartnerStore(), op
   return app;
 }
 
-/** Postgres when DATABASE_URL is set (migrates on boot); in-memory otherwise. */
-export async function resolveStore(): Promise<PartnerStore> {
-  if (!process.env.DATABASE_URL) return new InMemoryPartnerStore();
+/**
+ * Postgres when DATABASE_URL is set (migrates on boot); in-memory otherwise.
+ * Returns a dbPing readiness check bound to the live pool so /readyz reflects
+ * real database health; omitted for the in-memory store (defaults to always-ok).
+ */
+export async function resolveStore(): Promise<{ store: PartnerStore; dbPing?: ReadinessCheck }> {
+  if (!process.env.DATABASE_URL) return { store: new InMemoryPartnerStore() };
   const { createPool, migrate } = await import('./db');
   const { PgPartnerStore } = await import('./pg-partner');
   const pool = createPool();
   await migrate(pool);
-  return new PgPartnerStore(pool);
+  const dbPing: ReadinessCheck = async () => {
+    try {
+      await pool.query('SELECT 1');
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  return { store: new PgPartnerStore(pool), dbPing };
 }
 
 if (require.main === module) {
   resolveStore()
-    .then((store) => {
-      const app = buildServer(store);
+    .then(({ store, dbPing }) => {
+      const app = buildServer(store, { dbPing });
       const port = Number(process.env.PORT ?? 3006);
       return app.listen({ port, host: '0.0.0.0' }).then(() => {
         new Logger({ service: 'partner-admin-svc' }).info('listening', {
