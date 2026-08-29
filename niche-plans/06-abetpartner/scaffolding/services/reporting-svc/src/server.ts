@@ -6,7 +6,7 @@
  */
 
 import Fastify, { FastifyInstance, FastifyRequest } from 'fastify';
-import { parseBearer, verifyToken, runWithPrincipal, Logger, requireSecret } from '@abetworks/core';
+import { parseBearer, verifyToken, runWithPrincipal, Logger, requireSecret, readiness } from '@abetworks/core';
 import { ReportingService, AccessDeniedError, type Branding, type WorkspaceGrant } from './reporting';
 
 const JWT_SECRET = requireSecret('JWT_SECRET', { devDefault: 'dev-secret-change-me' });
@@ -25,7 +25,7 @@ export function buildServer(
   const app = Fastify({ logger: false });
 
   app.addHook('onRequest', async (req: FastifyRequest, reply) => {
-    if (req.url === '/healthz') return;
+    if (req.url === '/healthz' || req.url === '/readyz') return;
     try {
       req.principal = verifyToken(parseBearer(req.headers.authorization), JWT_SECRET);
     } catch (err) {
@@ -34,6 +34,10 @@ export function buildServer(
   });
 
   app.get('/healthz', async () => ({ status: 'ok' }));
+  app.get('/readyz', async (_req, reply) => {
+    const report = await readiness({});
+    return reply.code(report.status === 'ok' ? 200 : 503).send(report);
+  });
 
   app.post<{ Body: { workspaceId?: string; title?: string; metrics?: Record<string, number> } }>(
     '/v1/reports',

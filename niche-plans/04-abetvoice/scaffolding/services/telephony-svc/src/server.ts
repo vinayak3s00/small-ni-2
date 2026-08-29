@@ -6,7 +6,7 @@
  */
 
 import Fastify, { FastifyInstance, FastifyRequest } from 'fastify';
-import { parseBearer, verifyToken, runWithPrincipal, Logger, requireSecret } from '@abetworks/core';
+import { parseBearer, verifyToken, runWithPrincipal, Logger, requireSecret, readiness } from '@abetworks/core';
 import { CallService, InMemoryDnd, DndBlockedError, type DndRegistry } from './calls';
 
 const JWT_SECRET = requireSecret('JWT_SECRET', { devDefault: 'dev-secret-change-me' });
@@ -16,7 +16,7 @@ export function buildServer(dnd: DndRegistry = new InMemoryDnd()): FastifyInstan
   const calls = new CallService(dnd);
 
   app.addHook('onRequest', async (req: FastifyRequest, reply) => {
-    if (req.url === '/healthz' || req.url === '/v1/webhooks/telephony') return;
+    if (req.url === '/healthz' || req.url === '/readyz' || req.url === '/v1/webhooks/telephony') return;
     try {
       req.principal = verifyToken(parseBearer(req.headers.authorization), JWT_SECRET);
     } catch (err) {
@@ -25,6 +25,10 @@ export function buildServer(dnd: DndRegistry = new InMemoryDnd()): FastifyInstan
   });
 
   app.get('/healthz', async () => ({ status: 'ok' }));
+  app.get('/readyz', async (_req, reply) => {
+    const report = await readiness({});
+    return reply.code(report.status === 'ok' ? 200 : 503).send(report);
+  });
   app.post('/v1/webhooks/telephony', async () => ({ status: 'received' }));
 
   app.post<{

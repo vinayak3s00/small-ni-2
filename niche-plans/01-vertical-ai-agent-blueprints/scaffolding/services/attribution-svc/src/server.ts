@@ -10,8 +10,10 @@ import {
   parseBearer,
   verifyToken,
   runWithPrincipal,
+  readiness,
   MeterEmitter,
   Logger,
+  type ReadinessCheck,
   type MeterSink,
   requireSecret,
 } from '@abetworks/core';
@@ -24,6 +26,8 @@ import {
 const JWT_SECRET = requireSecret('JWT_SECRET', { devDefault: 'dev-secret-change-me' });
 
 export interface ServerOptions {
+  /** Readiness probe for the datastore (e.g. `SELECT 1`); ok=true when healthy. */
+  dbPing?: ReadinessCheck;
   /** Optional meter sink (tests inject in-memory; prod uses default log/Kafka sink). */
   meterSink?: MeterSink;
 }
@@ -36,7 +40,7 @@ export function buildServer(
   const meter = new MeterEmitter({ service: 'attribution-svc', sink: opts.meterSink });
 
   app.addHook('onRequest', async (req: FastifyRequest, reply) => {
-    if (req.url === '/healthz') return;
+    if (req.url === '/healthz' || req.url === '/readyz') return;
     try {
       req.principal = verifyToken(parseBearer(req.headers.authorization), JWT_SECRET);
     } catch (err) {
@@ -48,6 +52,11 @@ export function buildServer(
     runWithPrincipal(req.principal!, fn);
 
   app.get('/healthz', async () => ({ status: 'ok' }));
+
+  app.get('/readyz', async (_req, reply) => {
+    const report = await readiness({ db: opts.dbPing ?? (() => true) });
+    return reply.code(report.status === 'ok' ? 200 : 503).send(report);
+  });
 
   app.post<{
     Body: {
@@ -87,20 +96,32 @@ export function buildServer(
   return app;
 }
 
-/** Postgres when DATABASE_URL is set (migrates on boot); in-memory otherwise. */
-export async function resolveStore(): Promise<AttributionStore> {
-  if (!process.env.DATABASE_URL) return new InMemoryAttributionStore();
+/**
+ * Postgres when DATABASE_URL is set (migrates on boot); in-memory otherwise.
+ * Returns a dbPing readiness check bound to the live pool so /readyz reflects
+ * real database health; omitted for the in-memory store (defaults to always-ok).
+ */
+export async function resolveStore(): Promise<{ store: AttributionStore; dbPing?: ReadinessCheck }> {
+  if (!process.env.DATABASE_URL) return { store: new InMemoryAttributionStore() };
   const { createPool, migrate } = await import('./db');
   const { PgAttributionStore } = await import('./pg-attribution');
   const pool = createPool();
   await migrate(pool);
-  return new PgAttributionStore(pool);
+  const dbPing: ReadinessCheck = async () => {
+    try {
+      await pool.query('SELECT 1');
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  return { store: new PgAttributionStore(pool), dbPing };
 }
 
 if (require.main === module) {
   resolveStore()
-    .then((store) => {
-      const app = buildServer(store);
+    .then(({ store, dbPing }) => {
+      const app = buildServer(store, { dbPing });
       const port = Number(process.env.PORT ?? 3011);
       return app.listen({ port, host: '0.0.0.0' }).then(() => {
         new Logger({ service: 'attribution-svc' }).info('listening', {

@@ -17,6 +17,22 @@ const auth = {
   authorization: `Bearer ${jwt.sign({ sub: 'owner', tenant_id: 'partner-1', roles: ['owner'] }, SECRET)}`,
 };
 
+describe('partner-admin-svc readiness', () => {
+  it('serves readiness as ok when the db ping passes', async () => {
+    const app = buildServer(new InMemoryPartnerStore());
+    const ready = await app.inject({ method: 'GET', url: '/readyz' });
+    expect(ready.statusCode).toBe(200);
+    expect(ready.json()).toMatchObject({ status: 'ok', checks: { db: 'ok' } });
+  });
+
+  it('reports 503 from readiness when the db ping fails', async () => {
+    const app = buildServer(new InMemoryPartnerStore(), { dbPing: () => false });
+    const ready = await app.inject({ method: 'GET', url: '/readyz' });
+    expect(ready.statusCode).toBe(503);
+    expect(ready.json()).toMatchObject({ status: 'degraded', checks: { db: 'fail' } });
+  });
+});
+
 describe('partner-admin-svc metering', () => {
   it('emits a billable "records" event per workspace provisioned', async () => {
     const meterSink = new InMemoryMeterSink();

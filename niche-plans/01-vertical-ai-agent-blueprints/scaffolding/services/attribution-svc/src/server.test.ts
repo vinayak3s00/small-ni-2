@@ -16,6 +16,22 @@ const auth = {
   authorization: `Bearer ${jwt.sign({ sub: 'u', tenant_id: 'tenant-at', roles: ['sales'] }, SECRET)}`,
 };
 
+describe('attribution-svc readiness', () => {
+  it('serves readiness as ok when the db ping passes', async () => {
+    const app = buildServer(new InMemoryAttributionStore());
+    const ready = await app.inject({ method: 'GET', url: '/readyz' });
+    expect(ready.statusCode).toBe(200);
+    expect(ready.json()).toMatchObject({ status: 'ok', checks: { db: 'ok' } });
+  });
+
+  it('reports 503 from readiness when the db ping fails', async () => {
+    const app = buildServer(new InMemoryAttributionStore(), { dbPing: () => false });
+    const ready = await app.inject({ method: 'GET', url: '/readyz' });
+    expect(ready.statusCode).toBe(503);
+    expect(ready.json()).toMatchObject({ status: 'degraded', checks: { db: 'fail' } });
+  });
+});
+
 describe('attribution-svc metering', () => {
   it('emits a billable "records" event per attribution touch recorded', async () => {
     const meterSink = new InMemoryMeterSink();

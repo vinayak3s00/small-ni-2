@@ -28,6 +28,22 @@ async function seededServer(meterSink?: InMemoryMeterSink) {
   return app;
 }
 
+describe('order-svc readiness', () => {
+  it('serves readiness as ok when the db ping passes', async () => {
+    const app = buildServer(new InMemoryOrderStore());
+    const ready = await app.inject({ method: 'GET', url: '/readyz' });
+    expect(ready.statusCode).toBe(200);
+    expect(ready.json()).toMatchObject({ status: 'ok', checks: { db: 'ok' } });
+  });
+
+  it('reports 503 from readiness when the db ping fails', async () => {
+    const app = buildServer(new InMemoryOrderStore(), { dbPing: () => false });
+    const ready = await app.inject({ method: 'GET', url: '/readyz' });
+    expect(ready.statusCode).toBe(503);
+    expect(ready.json()).toMatchObject({ status: 'degraded', checks: { db: 'fail' } });
+  });
+});
+
 describe('order-svc metering', () => {
   it('bills one "records" unit per order, not for idempotent replays', async () => {
     const meterSink = new InMemoryMeterSink();
