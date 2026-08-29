@@ -70,6 +70,44 @@ describe('requireSecret', () => {
     expect(() => requireSecret(VAR)).toThrowError(new RegExp(VAR));
   });
 
+  it('throws when NODE_ENV=staging and the env var is missing, even with a dev default', () => {
+    process.env.NODE_ENV = 'staging';
+    expect(() => requireSecret(VAR, { devDefault: 'dev' })).toThrowError(
+      new RegExp(VAR),
+    );
+  });
+
+  it('throws when NODE_ENV is mis-cased Production, even with a dev default', () => {
+    process.env.NODE_ENV = 'Production';
+    expect(() => requireSecret(VAR, { devDefault: 'dev' })).toThrowError(
+      new RegExp(VAR),
+    );
+  });
+
+  it('returns the dev default when NODE_ENV=development and env var missing', () => {
+    process.env.NODE_ENV = 'development';
+    const records: LogRecord[] = [];
+    expect(
+      requireSecret(VAR, { devDefault: 'dev-default', logger: capturingLogger(records) }),
+    ).toBe('dev-default');
+  });
+
+  it('returns the dev default when NODE_ENV=test and env var missing', () => {
+    process.env.NODE_ENV = 'test';
+    const records: LogRecord[] = [];
+    expect(
+      requireSecret(VAR, { devDefault: 'dev-default', logger: capturingLogger(records) }),
+    ).toBe('dev-default');
+  });
+
+  it('returns the dev default when NODE_ENV is unset and env var missing', () => {
+    delete process.env.NODE_ENV;
+    const records: LogRecord[] = [];
+    expect(
+      requireSecret(VAR, { devDefault: 'dev-default', logger: capturingLogger(records) }),
+    ).toBe('dev-default');
+  });
+
   it('emits a one-time warning when the dev default is used', () => {
     process.env.NODE_ENV = 'development';
     const records: LogRecord[] = [];

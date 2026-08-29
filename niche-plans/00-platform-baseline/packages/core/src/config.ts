@@ -10,15 +10,20 @@ import { Logger, logger } from './logger';
 /**
  * Fail-fast secret resolution shared by every Abetworks service.
  *
- * In production (`process.env.NODE_ENV === 'production'`) a missing/empty secret
- * is a fatal misconfiguration: this throws a clear startup error rather than
- * silently falling back to an insecure default. In non-production, a documented
- * `devDefault` may be used, and a one-time warning is emitted per secret name so
+ * The insecure `devDefault` is permitted (fail-open) ONLY in explicitly
+ * recognized local development/test environments: when `NODE_ENV` is exactly
+ * `'development'` or `'test'`, or when `NODE_ENV` is unset/empty. In EVERY other
+ * environment (e.g. `'production'`, `'staging'`, `'prod'`, a mis-cased
+ * `'Production'`, or any unrecognized value) a missing/empty secret is a fatal
+ * misconfiguration: this throws a clear startup error rather than silently
+ * falling back to an insecure default (fail-closed / allowlist).
+ *
+ * When the dev default is used, a one-time warning is emitted per secret name so
  * the insecure default is never silently relied upon.
  */
 
 export interface RequireSecretOptions {
-  /** Insecure development-only fallback, used only when NODE_ENV !== 'production'. */
+  /** Insecure development-only fallback, used only in recognized dev/test environments. */
   devDefault?: string;
   /** Optional Logger override (used for tests); defaults to the shared logger. */
   logger?: Logger;
@@ -27,8 +32,17 @@ export interface RequireSecretOptions {
 /** Dedupe set so the dev-default warning is emitted at most once per secret name. */
 const warnedSecrets = new Set<string>();
 
-function isProduction(): boolean {
-  return process.env.NODE_ENV === 'production';
+/**
+ * Whether an insecure `devDefault` may be used for a missing secret.
+ *
+ * Fail-closed allowlist: only local development/test environments qualify.
+ * `NODE_ENV` must be exactly `'development'` or `'test'`, or be unset/empty
+ * (preserving local dev ergonomics). Any other non-empty value is treated as
+ * "secrets required" and a missing secret throws.
+ */
+function devDefaultAllowed(): boolean {
+  const env = process.env.NODE_ENV;
+  return env === undefined || env === '' || env === 'development' || env === 'test';
 }
 
 function missingSecretError(name: string): Error {
@@ -45,7 +59,8 @@ function missingSecretError(name: string): Error {
  * @param opts - Optional dev default and logger override.
  * @returns The resolved secret value.
  * @throws When the secret is unset/empty and no safe fallback is available
- *   (always in production; in non-production when no `devDefault` is given).
+ *   (in any environment that is not a recognized local dev/test environment;
+ *   also when no `devDefault` is given in a dev/test environment).
  */
 export function requireSecret(name: string, opts?: RequireSecretOptions): string {
   const v = process.env[name];
@@ -53,7 +68,7 @@ export function requireSecret(name: string, opts?: RequireSecretOptions): string
     return v;
   }
 
-  if (isProduction()) {
+  if (!devDefaultAllowed()) {
     throw missingSecretError(name);
   }
 
