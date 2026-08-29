@@ -6,11 +6,11 @@
  */
 
 import Fastify, { FastifyInstance, FastifyRequest } from 'fastify';
-import { parseBearer, verifyToken, runWithPrincipal, getPrincipal, Logger } from '@abetworks/core';
+import { parseBearer, verifyToken, runWithPrincipal, getPrincipal, Logger, requireSecret } from '@abetworks/core';
 import { buildQuote, UnknownSkuError, type CatalogItem, type QuoteLineInput } from './quoting';
 import { InMemoryOptInStore, guardOutbound } from './optin';
 
-const JWT_SECRET = process.env.JWT_SECRET ?? 'dev-secret-change-me';
+const JWT_SECRET = requireSecret('JWT_SECRET', { devDefault: 'dev-secret-change-me' });
 
 // Demo catalog (per-tenant in production). Prices in minor units (paise).
 const DEMO_CATALOG = new Map<string, CatalogItem>([

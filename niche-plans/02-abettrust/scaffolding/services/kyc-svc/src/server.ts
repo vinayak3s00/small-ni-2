@@ -18,6 +18,7 @@ import {
   MeterEmitter,
   type ReadinessCheck,
   type MeterSink,
+  requireSecret,
 } from '@abetworks/core';
 import {
   InMemoryKycStore,
@@ -27,7 +28,7 @@ import {
   type KycStore,
 } from './kyc';
 
-const JWT_SECRET = process.env.JWT_SECRET ?? 'dev-secret-change-me';
+const JWT_SECRET = requireSecret('JWT_SECRET', { devDefault: 'dev-secret-change-me' });
 
 // The onRequest hook replaces Fastify's built-in `request.log` (Pino) with a
 // platform `Logger` child. Fastify owns the `log` decoration type, so we read

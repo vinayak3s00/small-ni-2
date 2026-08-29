@@ -6,10 +6,10 @@
  */
 
 import Fastify, { FastifyInstance, FastifyRequest } from 'fastify';
-import { parseBearer, verifyToken, runWithPrincipal, Logger } from '@abetworks/core';
+import { parseBearer, verifyToken, runWithPrincipal, Logger, requireSecret } from '@abetworks/core';
 import { ReportingService, AccessDeniedError, type Branding, type WorkspaceGrant } from './reporting';
 
-const JWT_SECRET = process.env.JWT_SECRET ?? 'dev-secret-change-me';
+const JWT_SECRET = requireSecret('JWT_SECRET', { devDefault: 'dev-secret-change-me' });
 
 // Demo branding + grants (per-partner in production, loaded from partner-admin-svc).
 const DEMO_BRANDING: Branding = {

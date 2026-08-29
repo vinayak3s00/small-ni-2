@@ -13,10 +13,11 @@ import {
   MeterEmitter,
   Logger,
   type MeterSink,
+  requireSecret,
 } from '@abetworks/core';
 import { SyncEngine, type Mutation, type SyncStore } from './sync';
 
-const JWT_SECRET = process.env.JWT_SECRET ?? 'dev-secret-change-me';
+const JWT_SECRET = requireSecret('JWT_SECRET', { devDefault: 'dev-secret-change-me' });
 
 export interface ServerOptions {
   /** Optional meter sink (tests inject in-memory; prod uses default log/Kafka sink). */

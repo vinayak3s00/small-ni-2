@@ -13,3 +13,4 @@ export * from './audit';
 export * from './logger';
 export * from './http';
 export * from './metering';
+export * from './config';
