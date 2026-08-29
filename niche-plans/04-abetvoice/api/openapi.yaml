@@ -31,6 +31,31 @@ paths:
       summary: Get transcript summary + intents + citations
       parameters: [ { name: id, in: path, required: true, schema: { type: string } } ]
       responses: { '200': { description: OK } }
+  /calls/{id}/complete:
+    post:
+      summary: Mark a call complete and finalize its record
+      parameters: [ { name: id, in: path, required: true, schema: { type: string } } ]
+      responses: { '200': { description: Completed } }
+  /calls/{id}/start:
+    post:
+      summary: Start the voice-orchestrator session for a call
+      parameters: [ { name: id, in: path, required: true, schema: { type: string } } ]
+      responses: { '202': { description: Session started } }
+  /events:
+    post:
+      summary: Ingest a voice-orchestrator runtime event
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [type]
+              properties:
+                type: { type: string }
+                callId: { type: string }
+                payload: { type: object }
+      responses: { '202': { description: Accepted } }
   /webhooks/telephony:
     post:
       summary: Inbound call / media event webhook
