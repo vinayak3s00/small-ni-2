@@ -6,10 +6,10 @@
  */
 
 import Fastify, { FastifyInstance, FastifyRequest } from 'fastify';
-import { parseBearer, verifyToken, runWithPrincipal, Logger } from '@abetworks/core';
+import { parseBearer, verifyToken, runWithPrincipal, Logger, requireSecret } from '@abetworks/core';
 import { CallService, InMemoryDnd, DndBlockedError, type DndRegistry } from './calls';
 
-const JWT_SECRET = process.env.JWT_SECRET ?? 'dev-secret-change-me';
+const JWT_SECRET = requireSecret('JWT_SECRET', { devDefault: 'dev-secret-change-me' });
 
 export function buildServer(dnd: DndRegistry = new InMemoryDnd()): FastifyInstance {
   const app = Fastify({ logger: false });

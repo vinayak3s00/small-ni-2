@@ -6,11 +6,11 @@
  */
 
 import Fastify, { FastifyInstance, FastifyRequest } from 'fastify';
-import { Logger } from '@abetworks/core';
+import { Logger, requireSecret } from '@abetworks/core';
 import { normalizeInbound, verifyChallenge, verifySignature } from './whatsapp';
 
-const VERIFY_TOKEN = process.env.WA_VERIFY_TOKEN ?? 'dev-verify-token';
-const APP_SECRET = process.env.WA_APP_SECRET ?? 'dev-app-secret';
+const VERIFY_TOKEN = requireSecret('WA_VERIFY_TOKEN', { devDefault: 'dev-verify-token' });
+const APP_SECRET = requireSecret('WA_APP_SECRET', { devDefault: 'dev-app-secret' });
 
 export function buildServer(onMessage?: (m: unknown) => void): FastifyInstance {
   const app = Fastify({ logger: false });

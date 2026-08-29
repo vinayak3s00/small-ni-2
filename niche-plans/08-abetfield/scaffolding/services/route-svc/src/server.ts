@@ -6,11 +6,11 @@
  */
 
 import Fastify, { FastifyInstance, FastifyRequest } from 'fastify';
-import { parseBearer, verifyToken, runWithPrincipal, getPrincipal, Logger } from '@abetworks/core';
+import { parseBearer, verifyToken, runWithPrincipal, getPrincipal, Logger, requireSecret } from '@abetworks/core';
 import { RouteService, GeoCheckInError } from './routes';
 import type { GeoPoint } from './geo';
 
-const JWT_SECRET = process.env.JWT_SECRET ?? 'dev-secret-change-me';
+const JWT_SECRET = requireSecret('JWT_SECRET', { devDefault: 'dev-secret-change-me' });
 
 export function buildServer(svc = new RouteService()): FastifyInstance {
   const app = Fastify({ logger: false });
