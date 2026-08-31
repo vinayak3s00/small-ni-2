@@ -4,10 +4,9 @@
 # See the LICENSE file at the repository root. Contact: legal@abetworks.in
 
 import pytest
-from fastapi.testclient import TestClient
-
-from turn import InvalidTransition, TurnMachine, TurnState
 from app import app
+from fastapi.testclient import TestClient
+from turn import InvalidTransition, TurnMachine, TurnState
 
 client = TestClient(app)
 

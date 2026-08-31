@@ -1,0 +1,18 @@
+# Abetworks — shared Ruff configuration for all Python services.
+# Applied repo-wide so every service under niche-plans/**/scaffolding/services
+# is linted against one consistent, meaningful ruleset (see scripts/run_all_lint.sh).
+line-length = 100
+target-version = "py311"
+
+[lint]
+# E/W  pycodestyle, F  pyflakes (real bugs), I  import order,
+# B    flake8-bugbear (correctness traps), UP  pyupgrade (modern syntax),
+# C4   comprehensions, SIM  simplifications.
+select = ["E", "W", "F", "I", "B", "UP", "C4", "SIM"]
+# E501 is enforced by the formatter's line-length, not the linter, to avoid
+# noisy failures on long strings/URLs in scaffolding.
+ignore = ["E501"]
+
+[lint.per-file-ignores]
+# Tests may keep imports for fixtures and use simple assert patterns.
+"**/tests/**" = ["B011"]

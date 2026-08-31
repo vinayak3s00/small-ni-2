@@ -8,7 +8,6 @@ from __future__ import annotations
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
-
 from scoring import ScoringPack, score_record
 
 app = FastAPI(title="AbetVerticals Scoring", version="1.0.0")

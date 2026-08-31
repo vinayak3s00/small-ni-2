@@ -9,9 +9,8 @@ from __future__ import annotations
 from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
-
 from mapping import CutoverResult, FieldMap, MappingSpec, TargetStore, cutover, rollback
+from pydantic import BaseModel
 
 app = FastAPI(title="AbetMigrate Mapping Engine", version="1.0.0")
 
@@ -55,7 +54,7 @@ def do_cutover(req: CutoverRequest) -> CutoverResponse:
     try:
         result: CutoverResult = cutover(store, spec, req.sourceKind, req.records)
     except ValueError as e:
-        raise HTTPException(status_code=422, detail=str(e))
+        raise HTTPException(status_code=422, detail=str(e)) from e
     migration_id = str(uuid4())
     _STORES[migration_id] = store
     _JOURNALS[migration_id] = result.rollback

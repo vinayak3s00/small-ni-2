@@ -72,7 +72,7 @@ Beyond the design docs, each product ships **runnable, tested service code** und
 
 | Product | Service | Stack | What it demonstrates | Tests |
 |---------|---------|-------|----------------------|-------|
-| baseline | `@abetworks/core` | TS lib | tenant context (AsyncLocalStorage), RLS scope helper, JWT auth, append-only audit | 5 |
+| baseline | `@abetworks/core` | TS lib | tenant context (AsyncLocalStorage), RLS scope helper, hardened JWT auth (alg allowlist), append-only audit | 17 |
 | AbetVerticals | `core-crm` | TS/Fastify | auth + tenant isolation + no-double-book optimistic lock | 3 |
 | AbetVerticals | `scoring-svc` | Py/FastAPI | explainable scoring with ordered reason codes, per-vertical packs | 5 |
 | AbetVerticals | `agent-orchestrator` | Py/FastAPI | guardrail-first + RAG cited answers + escalation-with-summary | 6 |
@@ -97,7 +97,7 @@ Beyond the design docs, each product ships **runnable, tested service code** und
 | AbetField | `route-svc` | TS/Fastify | beat plans + haversine geo-verified check-in | 6 |
 | AbetField | `order-svc` | TS/Fastify | GST-aware field orders + all-or-nothing stock allocation | 5 |
 
-**Total: 24 services, 141 tests, all green.** All source files carry the Abetworks proprietary header (see `LICENSE`).
+**Total: 24 services, 153 tests, all green.** All source files carry the Abetworks proprietary header (see `LICENSE`).
 
 ### Production-grade, sales-ready services
 
@@ -125,12 +125,14 @@ bash demo/smoke.sh    # 7 end-to-end checks: lead -> attribution -> KYC -> order
 
 `.github/workflows/ci.yml` runs on every push and PR:
 - **`license-headers`** — `scripts/check_license_headers.sh` fails the build if any source file is missing the proprietary header.
+- **`lint`** — `scripts/run_all_lint.sh` type-checks `@abetworks/core` and every TS service with `tsc --noEmit`, and lints every Python service with a single shared Ruff config (`ruff.toml`); the job fails on any type error or lint violation.
 - **`tests`** — `scripts/run_all_tests.sh` builds `@abetworks/core` then runs every TS (vitest) and Python (pytest) suite; the job fails if any suite fails.
 - **`db-integration`** — a matrix job spins up Postgres and runs the real integration tests for `core-crm`, `audit-evidence-svc`, `attribution-svc`, `kyc-svc`, `order-svc`, `partner-admin-svc`, and `sync-gateway`.
 
 Run the same checks locally:
 ```bash
 bash scripts/check_license_headers.sh   # header enforcement
+bash scripts/run_all_lint.sh            # type-check (tsc) + lint (ruff)
 bash scripts/run_all_tests.sh           # all service suites
 ```
 

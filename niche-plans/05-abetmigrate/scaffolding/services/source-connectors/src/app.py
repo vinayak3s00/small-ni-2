@@ -6,10 +6,9 @@
 """FastAPI app exposing AbetMigrate source-connector extraction."""
 from __future__ import annotations
 
+from connectors import extract
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-
-from connectors import extract
 
 app = FastAPI(title="AbetMigrate Source Connectors", version="1.0.0")
 
@@ -39,7 +38,7 @@ def do_extract(req: ExtractRequest) -> list[StagingModel]:
     try:
         records = extract(req.kind, payload)
     except ValueError as e:
-        raise HTTPException(status_code=422, detail=str(e))
+        raise HTTPException(status_code=422, detail=str(e)) from e
     return [
         StagingModel(
             sourceKind=r.source_kind, sourceId=r.source_id, data=r.data, provenance=r.provenance

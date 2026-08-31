@@ -8,7 +8,6 @@ from __future__ import annotations
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-
 from turn import InvalidTransition, TurnMachine, TurnState
 
 app = FastAPI(title="AbetVoice Orchestrator", version="1.0.0")
@@ -61,7 +60,7 @@ def event(req: EventRequest) -> StateResponse:
     try:
         handler(machine)
     except InvalidTransition as e:
-        raise HTTPException(status_code=409, detail=str(e))
+        raise HTTPException(status_code=409, detail=str(e)) from e
     if machine.state == TurnState.ENDED:
         _SESSIONS.pop(req.callId, None)
     return _snapshot(req.callId, machine)

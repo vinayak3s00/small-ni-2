@@ -7,9 +7,8 @@
 from __future__ import annotations
 
 from fastapi import FastAPI
+from policy import Actor, check_grounding, evaluate
 from pydantic import BaseModel
-
-from policy import Actor, evaluate, check_grounding
 
 app = FastAPI(title="AbetTrust Policy Engine", version="1.0.0")
 

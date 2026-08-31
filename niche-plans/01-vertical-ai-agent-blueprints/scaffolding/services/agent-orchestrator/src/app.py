@@ -7,9 +7,8 @@
 from __future__ import annotations
 
 from fastapi import FastAPI
-from pydantic import BaseModel
-
 from orchestrator import Source, answer
+from pydantic import BaseModel
 
 app = FastAPI(title="AbetVerticals Agent Orchestrator", version="1.0.0")
 

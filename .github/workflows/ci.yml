@@ -17,6 +17,20 @@ jobs:
       - name: Verify proprietary headers
         run: bash scripts/check_license_headers.sh
 
+  lint:
+    name: Lint & type-check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install uv (provides ruff via uvx)
+        uses: astral-sh/setup-uv@v3
+      - name: Run lint & type-check gate
+        run: bash scripts/run_all_lint.sh
+
   tests:
     name: Service test suites
     runs-on: ubuntu-latest

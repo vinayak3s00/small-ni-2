@@ -8,7 +8,6 @@ from __future__ import annotations
 
 from fastapi import FastAPI
 from pydantic import BaseModel
-
 from support import Order, Policy, resolve
 
 app = FastAPI(title="AbetRetain Support Agent", version="1.0.0")

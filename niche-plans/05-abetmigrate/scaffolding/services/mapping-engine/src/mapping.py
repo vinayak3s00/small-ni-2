@@ -13,8 +13,9 @@ Reliability guarantees from the plan:
 """
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import Any
 
 # Built-in field transforms available to a mapping rule.
 TRANSFORMS: dict[str, Callable[[Any], Any]] = {
